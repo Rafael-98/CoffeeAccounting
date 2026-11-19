@@ -54,9 +54,9 @@
     <tr{% if p.inactive %} class="is-inactive"{% endif %}>
       <th scope="row"><span class="person-cell">{{ avatar(p.id, p.name, p.profile) }}<span><a href="/overview/people/{{ p.id }}">{{ p.name }}</a>{% if p.inactive %} <span class="badge">{{ t("site.inactive") }}</span>{% endif %}{% if p.profile and p.profile.status_text %}<br>{{ status_line(p.profile) }}{% endif %}</span></span></th>
       <td>{{ p.chair }}</td>
-      <td class="num">{{ p.shots_month }}</td>
-      <td class="num">{{ p.shots_total }}</td>
-      <td>{{ balance(p.label) }}</td>
+      <td class="num">{% if p.shots_month is not none %}{{ p.shots_month }}{% else %}{{ t("site.people.private") }}{% endif %}</td>
+      <td class="num">{% if p.shots_total is not none %}{{ p.shots_total }}{% else %}{{ t("site.people.private") }}{% endif %}</td>
+      <td>{% if p.label is not none %}{{ balance(p.label) }}{% else %}{{ t("site.people.private") }}{% endif %}</td>
     </tr>
   {% endfor %}
   </tbody>

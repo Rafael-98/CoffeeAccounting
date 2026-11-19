@@ -29,7 +29,7 @@ A small, self-hosted web app that records coffee consumption and payments in a u
 
 ## Purpose
 
-Members of a department scan a QR code each time they take a coffee. The app records the shot at the price in effect, shows the person what they owe, and lets group admins record cash they collect. The head admin sees the whole picture: who owes what, how much each group admin has collected and handed over, and can correct anything with a full audit trail. Every signed-in account can also read the open site (balances and history of everyone, see [the privacy section](#the-open-site-and-its-privacy-implications)).
+Members of a department scan a QR code each time they take a coffee. The app records the shot at the price in effect, shows the person what they owe, and lets group admins record cash they collect. The head admin sees the whole picture: who owes what, how much each group admin has collected and handed over, and can correct anything with a full audit trail. Every signed-in account can also read the open site (names, chairs, and by default balances and shot totals; see [the privacy section](#the-open-site-and-its-privacy-implications)).
 
 ## Architecture
 
@@ -87,9 +87,9 @@ TOTP enrolment happens once, at the first admin login (QR code or secret, then 8
 
 ## The open site and its privacy implications
 
-`/overview` is a read-only, server-rendered site for **every signed-in account** (members and guests): totals, price history, per-chair summary, a people list with search and sorting, a page per person with their complete consumption and payment history, and per-chair group balances. Anonymous visitors are sent to `/login` and returned after signing in. Pages are `Cache-Control: private, no-store`.
+`/overview` is a read-only, server-rendered site for **every signed-in account** (members and guests): department totals, price history, per-chair summary, a people list with search and sorting, a public profile per person (coffee totals and balance by default; optional picture, status and achievements), a shot leaderboard, and per-chair group balances. Dated coffee and payment history stays on each person's own `/account` page. Anonymous visitors are sent to `/login` and returned after signing in. Pages are `Cache-Control: private, no-store`.
 
-**This means every signed-in account sees everyone's name, chair, balance, shots and full history, plus the names of the group admins and the group balances.** It never shows email addresses, usernames, password data, sessions, audit entries, IP addresses, notes or which admin recorded an entry (a crawl test seeds such values and checks every page). The registration form and `/privacy` say so, and the registration checkbox asks for acknowledgement.
+**By default every signed-in account sees everyone's name, chair, balance and shot totals** (plus optional picture/status/achievements and the leaderboard), and the names of the group admins and the group balances. Anyone can opt out so peers no longer see their balance, shot totals, achievements or leaderboard row (name, chair, picture and status remain); self, that chair's group admins and head admins still see the numbers, and department totals still include their coffees. It never shows email addresses, usernames, password data, sessions, audit entries, IP addresses, notes or which admin recorded an entry (a crawl test seeds such values and checks every page). The registration form and `/privacy` say so, and the registration checkbox asks for acknowledgement.
 
 Before you launch, talk to the department's data protection contact about this and about the retention text and operator contact on `/privacy` (`OPERATOR_CONTACT`, `RETENTION_TEXT`). This is not legal advice.
 
@@ -439,7 +439,7 @@ Read the release notes and `.env.example` for new variables first. Ensure `./bac
 - **The mail login is not in backups.** A restore onto a new server, or a changed `SECRET_KEY`, needs `setup-mail` again. Until then registration and recovery pages say "temporarily unavailable".
 - **Shared sponsor trust:** a sponsor receives every reset mail of their guests and could use such a link themselves. This is accepted as part of vouching; the head admin can reassign a guest to another sponsor.
 - **Sponsor typos:** a guest who mistypes the sponsor's address gets the same neutral page and no mail (this keeps the form from revealing who is a member).
-- **Open site:** every signed-in account sees everyone's balance and history (see [the privacy section](#the-open-site-and-its-privacy-implications)).
+- **Open site:** every signed-in account sees everyone's name and chair, and by default balance and shot totals (opt-out available; see [the privacy section](#the-open-site-and-its-privacy-implications)).
 - Mail depends on the LRZ mailbox: quotas, spam filtering and policy are outside the app (see the mail checklist).
 - SQLite on one server; no high availability. Back up regularly and copy backups off the machine. Network or shared-cache filesystems (NFS, some cloud volume types) are not supported for the SQLite file; use a local disk.
 - Docker, the compose file and the proxy examples have not been run end to end in the build environment (no Docker daemon); verify them on your host with `scripts/smoke.sh` and the [mail checklist](#post-deployment-mail-checklist).

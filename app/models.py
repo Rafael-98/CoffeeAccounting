@@ -135,6 +135,8 @@ class User(Base):
     verified_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     sponsor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), index=True)  # guests only
     password_hash: Mapped[str | None] = mapped_column(String(255))
+    # When True, peers do not see balance, shot counts, achievements or a leaderboard row.
+    stats_private: Mapped[bool] = mapped_column(Boolean, default=False)
 
     chair: Mapped[Chair] = relationship(lazy="joined")
 
@@ -366,6 +368,7 @@ class PendingRegistration(Base):
     sponsor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), index=True)  # guests
     password_hash: Mapped[str] = mapped_column(String(255))
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)  # SHA-256 of the mailed token
+    stats_private: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_now)
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
     consumed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
