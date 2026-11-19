@@ -89,11 +89,17 @@ STRINGS: dict[str, str] = {
     "user.register.password_hint": "At least {min} characters.",
     "user.register.password2": "Repeat the password",
     "user.register.privacy": (
-        "I have read the privacy information. I understand that my name, {chair_label}, balance, coffee and payment "
-        "history are visible to every verified, signed-in account, and that no e-mail address, username or password "
-        "data is ever shown."
+        "I have read the privacy information. I understand that my name, {chair_label}, balance and coffee totals "
+        "are visible to every verified, signed-in account by default (I can hide the balance and totals later), "
+        "and that no e-mail address, username or password data is ever shown."
     ),
     "user.register.privacy_link": "Privacy information",
+    "user.register.stats_private": "Hide my coffee statistics and balance from other members",
+    "user.register.stats_private_hint": (
+        "Optional. Other signed-in accounts still see your name and {chair_label}. Group admins of your "
+        "{chair_label} and head admins can still see your balance and coffee totals. Department totals still "
+        "include your coffees. You can change this later under Edit profile."
+    ),
     "user.register.submit": "Create account",
     "user.register.have_account": "Already have an account?",
     "user.register.error_name": "Please enter a name (at most {max} characters, no control characters).",
@@ -214,7 +220,9 @@ STRINGS: dict[str, str] = {
     "user.account.email": "E-mail address",
     "user.account.private_hint": "Your username and e-mail address are shown only to you.",
     "user.account.visibility": (
-        "Your name, {chair_label}, balance and history are visible to every signed-in account."
+        "Your name and {chair_label} are visible to every signed-in account. By default they also see your "
+        "balance and coffee totals; you can hide those under Edit profile. Dated coffee and payment history "
+        "stays on this page only."
     ),
     "user.account.site": "Overview of the department",
     "user.account.price": "Current price per shot",
@@ -293,6 +301,15 @@ STRINGS: dict[str, str] = {
     "user.edit.avatar_too_large": "The picture is too large (at most {mb} MB).",
     "user.edit.avatar_empty": "Please choose a picture first.",
     "user.edit.avatar_invalid": "This file could not be read as a picture. Please use JPEG, PNG, WebP or GIF.",
+    "user.edit.stats_private": "Hide my coffee statistics and balance from other members",
+    "user.edit.stats_private_hint": (
+        "When checked, other signed-in accounts see only your name, {chair_label}, picture and status. "
+        "They do not see your balance, coffee totals, achievements or a place on the leaderboard. "
+        "You, the group admins of your {chair_label} and head admins still see the numbers. "
+        "Department totals still include your coffees."
+    ),
+    "user.edit.privacy_save": "Save privacy setting",
+    "user.edit.privacy_saved": "Privacy setting saved.",
     "user.edit.view_profile": "View my public profile",
     "user.edit.save": "Save",
     "user.edit.cancel": "Cancel",
@@ -305,19 +322,29 @@ STRINGS: dict[str, str] = {
     "user.privacy.what": (
         "Your username, display name and {chair_label}; for members the university e-mail address, for guests the "
         "account of the sponsor who vouched for them; your password only as a salted hash; every coffee and every "
-        "payment with date, amount and price; a record of each browser session (a hashed random token, creation, "
-        "last use and expiry); and an audit log of administrative actions, including changes of a {chair_label}."
+        "payment with date, amount and price; optional public profile extras you choose (a short status text and a "
+        "profile picture re-encoded without camera or location metadata); achievement unlocks derived from your "
+        "coffee history and which of them you choose to showcase; your preference to hide personal statistics from "
+        "peers; a record of each browser session (a hashed random token, creation, last use and expiry); and an "
+        "audit log of administrative actions, including changes of a {chair_label}."
     ),
     "user.privacy.not_stored": "No analytics, trackers or third-party services are used. E-mail addresses are used only to send you the mails described here.",
     "user.privacy.why_title": "Why",
     "user.privacy.why": "To keep a fair account of who owes how much for the shared coffee machine, and to be able to correct mistakes.",
     "user.privacy.who_title": "Who can see it",
     "user.privacy.who": (
-        "Every verified, signed-in account can see on the department website: your display name, your {chair_label}, "
-        "your balance (in words: what you owe or your credit), the number of coffees (this month and in total), "
-        "your complete history of coffees and payments (date, shots, price, amount), the names of the group admins "
-        "of each {chair_label} and the group balances (money collected, handed over and still held). Visitors who "
-        "are not signed in cannot see any of it."
+        "Visitors who are not signed in cannot see any personal data. Every verified, signed-in account can see "
+        "on the department website: your display name and {chair_label}; by default also your balance (in words: "
+        "what you owe or your credit), coffee totals (today, this month and overall), unlocked achievements and "
+        "any showcase badges you selected, and a row on the shot leaderboard; plus an optional picture and status "
+        "if you set them; the names of the group admins of each {chair_label}; and group and department totals "
+        "(money collected, handed over and still held, and aggregate coffee counts). Dated coffee and payment "
+        "history is shown only on your own account page, not on the public profile. You can hide your balance, "
+        "coffee totals, achievements and leaderboard presence from other members under Edit profile (or when "
+        "signing up); other members then still see your name, {chair_label}, picture and status. You yourself, "
+        "the group admins of your {chair_label} and head admins (in the admin area) still see your balance and "
+        "coffee statistics. Department and {chair_label} totals always include everyone's coffees, including "
+        "people who hid their personal statistics."
     ),
     "user.privacy.never_title": "What is never shown",
     "user.privacy.never": (
@@ -327,7 +354,8 @@ STRINGS: dict[str, str] = {
     ),
     "user.privacy.admins": (
         "Administrators of the department can additionally see accounts and ledgers in the admin area (group admins "
-        "only those of their own {chair_label})."
+        "only those of their own {chair_label}). They can also remove a status text or profile picture for "
+        "moderation; that is logged."
     ),
     "user.privacy.trust": "{app_title} is a trust-based departmental ledger. It does not prove anyone's real-world identity.",
     "user.privacy.retention_title": "Retention",
@@ -336,8 +364,9 @@ STRINGS: dict[str, str] = {
     "user.privacy.removal": (
         "You can deactivate your account under My account, or an administrator can do it. Deactivation "
         "anonymizes the display name (Alumni N) and clears the login name and e-mail from the account; the "
-        "ledger UUID, {chair_label} and history stay. For 90 days you can restore the original identity by "
-        "signing in with the same username and password (or an administrator can restore it). After that the "
-        "original name and e-mail cannot be restored. Ledger entries and the audit log are never deleted."
+        "optional status text and profile picture are deleted; the ledger UUID, {chair_label} and history stay. "
+        "For 90 days you can restore the original identity by signing in with the same username and password "
+        "(or an administrator can restore it). After that the original name and e-mail cannot be restored. "
+        "Ledger entries and the audit log are never deleted."
     ),
 }

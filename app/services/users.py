@@ -149,7 +149,7 @@ def create_user(db: Session, *, display_name: str, chair_id: uuid.UUID, now: dat
 def create_account(db: Session, *, kind: str, username: str, username_normalized: str, display_name: str,
                    chair_id: uuid.UUID, password_hash: str, email: str | None = None,
                    sponsor_id: uuid.UUID | None = None, verified_at: datetime | None = None,
-                   now: datetime | None = None) -> User:
+                   stats_private: bool = False, now: datetime | None = None) -> User:
     """Create a v2 account row (member: email, no sponsor; guest: sponsor, no email). The caller has
     validated username, email and password; the DB CHECKs and unique indexes are the last line.
     Raises `InvalidInput` for a bad display name or an unknown/inactive chair."""
@@ -161,8 +161,24 @@ def create_account(db: Session, *, kind: str, username: str, username_normalized
     user = User(display_name=name, normalized_name=normalize_name(name), chair_id=chair_id, status="active",
                 created_at=now, last_activity_at=now, username=username, username_normalized=username_normalized,
                 account_kind=kind, email=email, sponsor_id=sponsor_id, verified_at=verified_at or now,
-                password_hash=password_hash)
+                password_hash=password_hash, stats_private=bool(stats_private))
     db.add(user)
+    db.flush()
+    return user
+
+
+def set_stats_private(db: Session, *, user_id: uuid.UUID, stats_private: bool,
+                      now: datetime | None = None) -> User:
+    """The account owner sets whether peers may see balance, shot counts and achievements."""
+    user = db.get(User, user_id)
+    if user is None:
+        raise NotFound("user not found")
+    if user.status == "merged":
+        raise Conflict("account has been merged")
+    if user.status != "active":
+        raise UserInactive("account is not active")
+    user.stats_private = bool(stats_private)
+    user.last_activity_at = now or utcnow()
     db.flush()
     return user
 

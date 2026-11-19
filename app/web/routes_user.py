@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import read_session, write_session
-from app.models import COFFEE_KINDS, DISPLAY_NAME_MAX, STATUS_TEXT_MAX, Chair, ConsumptionEvent
+from app.models import COFFEE_KINDS, DISPLAY_NAME_MAX, STATUS_TEXT_MAX, Chair, ConsumptionEvent, User
 from app.services import (account, ledger, login, onboarding, passwords, pending, prices, ratelimit, recovery,
                           registration, sessions, users)
 from app.services.errors import (AlreadyReversed, Conflict, Forbidden, InvalidCredentials, InvalidInput, InvalidPassword,
@@ -272,10 +272,12 @@ def register_submit(request: Request, background_tasks: BackgroundTasks,
                     display_name: str = Form("", max_length=FORM_TEXT_MAX),
                     chair_id: str = Form("", max_length=64), email: str = Form("", max_length=FORM_TEXT_MAX),
                     password: str = Form("", max_length=PASSWORD_FORM_MAX),
-                    password2: str = Form("", max_length=PASSWORD_FORM_MAX), privacy_ack: str = Form("")):
+                    password2: str = Form("", max_length=PASSWORD_FORM_MAX), privacy_ack: str = Form(""),
+                    stats_private: str = Form("")):
     if user_views.mail_unavailable():  # collect nothing that could not be verified
         return _unavailable(request)
-    values = {"username": username, "display_name": display_name, "chair_id": chair_id[:64], "email": email}
+    values = {"username": username, "display_name": display_name, "chair_id": chair_id[:64], "email": email,
+              "stats_private": bool(stats_private)}
     if password != password2:
         return _register_page(request, values=values, errors={"password2": "user.register.error_password_mismatch"},
                               status=400)
@@ -287,7 +289,7 @@ def register_submit(request: Request, background_tasks: BackgroundTasks,
                 result = registration.begin_member(
                     db, username=username, display_name=display_name, chair_id=deps.parse_uuid(chair_id),
                     email=email, password=password, privacy_ack=bool(privacy_ack), ip=deps.client_ip(request),
-                    password_hash=password_hash)
+                    password_hash=password_hash, stats_private=bool(stats_private))
                 message = registration.mail_for_registration(result)
             except Conflict as exc:
                 if exc.context.get("reason") != registration.REASON_USERNAME_TAKEN:
@@ -310,12 +312,14 @@ def register_guest_submit(request: Request, background_tasks: BackgroundTasks,
                           display_name: str = Form("", max_length=FORM_TEXT_MAX),
                           sponsor_email: str = Form("", max_length=FORM_TEXT_MAX),
                           password: str = Form("", max_length=PASSWORD_FORM_MAX),
-                          password2: str = Form("", max_length=PASSWORD_FORM_MAX), privacy_ack: str = Form("")):
+                          password2: str = Form("", max_length=PASSWORD_FORM_MAX), privacy_ack: str = Form(""),
+                          stats_private: str = Form("")):
     """A guest asks a member (by e-mail address) to vouch for them. Whatever the address is (a member, a stranger,
     a member with too many open requests), the answer is the same neutral page."""
     if user_views.mail_unavailable():
         return _unavailable(request)
-    values = {"username": username, "display_name": display_name, "sponsor_email": sponsor_email}
+    values = {"username": username, "display_name": display_name, "sponsor_email": sponsor_email,
+              "stats_private": bool(stats_private)}
     if password != password2:
         return _register_page(request, values=values, errors={"password2": "user.register.error_password_mismatch"},
                               status=400, kind="guest")
@@ -329,7 +333,7 @@ def register_guest_submit(request: Request, background_tasks: BackgroundTasks,
                 result = registration.begin_guest(
                     db, username=username, display_name=display_name, password=password,
                     sponsor_email=sponsor_email, privacy_ack=bool(privacy_ack), ip=deps.client_ip(request),
-                    password_hash=password_hash)
+                    password_hash=password_hash, stats_private=bool(stats_private))
                 message = registration.mail_for_guest_request(result)
                 sponsor_address = result.sponsor_email
             except Conflict as exc:
@@ -536,20 +540,22 @@ def password_submit(request: Request, current_password: str = Form("", max_lengt
 
 
 EDIT_NOTICES = {"status_saved": "user.edit.status_saved", "avatar_saved": "user.edit.avatar_saved",
-                "avatar_removed": "user.edit.avatar_removed"}
+                "avatar_removed": "user.edit.avatar_removed", "privacy_saved": "user.edit.privacy_saved"}
 
 
 def _edit_page(request: Request, db: Session, ctx: UserContext, values: dict, errors: dict | None = None,
                status: int = 200, notice: str | None = None) -> Response:
     current = db.get(Chair, ctx.user.chair_id)
     profile = profiles.get_profile(db, ctx.user.id)
-    values = {"status_text": profile.status_text or "", **values}
+    me = db.get(User, ctx.user.id) or ctx.user
+    values = {"status_text": profile.status_text or "", "stats_private": bool(getattr(me, "stats_private", False)),
+              **values}
     return render(request, "user/edit.html", {
         "chairs": user_views.active_chairs(db, include=current), "values": values, "errors": errors or {},
         "name_max": DISPLAY_NAME_MAX, "chair_locked": user_views.is_group_admin(db, ctx.user.id),
         "current_chair": current, "profile": profile, "status_max": STATUS_TEXT_MAX,
         "avatar_max_mb": profiles.AVATAR_UPLOAD_MAX_BYTES // (1024 * 1024),
-        "notice": EDIT_NOTICES.get(notice or ""), "me": ctx.user}, status_code=status)
+        "notice": EDIT_NOTICES.get(notice or ""), "me": me}, status_code=status)
 
 
 @router.get("/account/edit")
@@ -628,6 +634,17 @@ def avatar_remove(request: Request, ctx: UserContext = Depends(deps.require_user
     except UserInactive:
         return _message(request, "user.scan.inactive_title", "user.scan.inactive_body", status=403, tone="error")
     return _redirect("/account/edit?notice=avatar_removed")
+
+
+@router.post("/account/privacy", dependencies=[Depends(deps.require_csrf)])
+def privacy_submit(request: Request, stats_private: str = Form(""),
+                   ctx: UserContext = Depends(deps.require_user)):
+    try:
+        with write_session() as db:
+            users.set_stats_private(db, user_id=ctx.user.id, stats_private=bool(stats_private))
+    except UserInactive:
+        return _message(request, "user.scan.inactive_title", "user.scan.inactive_body", status=403, tone="error")
+    return _redirect("/account/edit?notice=privacy_saved")
 
 
 @router.post("/account/deactivate", dependencies=[Depends(deps.require_csrf)])

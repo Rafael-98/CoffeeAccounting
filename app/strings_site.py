@@ -69,6 +69,7 @@ STRINGS: dict[str, str] = {
     "site.people.next": "Next page",
     "site.people.pager": "Pages",
     "site.people.inactive_hint": "Inactive accounts are listed only while they still have a balance.",
+    "site.people.private": "—",
     # Person page (task 5.2)
     "site.person.back": "All people",
     "site.person.chair": "Chair: {chair}",
@@ -102,6 +103,7 @@ STRINGS: dict[str, str] = {
     "site.person.edit_profile": "Edit profile",
     "site.person.no_status": "No status set.",
     "site.person.coffee_hint": "Counted in shots: a double coffee counts as two.",
+    "site.person.stats_private": "This person has hidden their coffee statistics and balance from other members.",
     "site.person.tab_overview": "Overview",
     "site.person.tab_achievements": "Achievements",
     "site.person.tabs": "Profile sections",

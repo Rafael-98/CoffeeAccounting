@@ -208,7 +208,7 @@ def _email_key(email: str) -> str:
 # ----- begin ----------------------------------------------------------------------------------
 def begin_member(db: Session, *, username: str, display_name: str, chair_id: uuid.UUID, email: str, password: str,
                  privacy_ack: bool, ip: str, now: datetime | None = None,
-                 password_hash: str | None = None) -> RegistrationResult:
+                 password_hash: str | None = None, stats_private: bool = False) -> RegistrationResult:
     """Validate a member registration and store a `pending_registrations` row (kind member).
 
     Raises `RateLimited`, `InvalidInput` (``context["field"]``: username, display_name, chair, email, password,
@@ -246,7 +246,8 @@ def begin_member(db: Session, *, username: str, display_name: str, chair_id: uui
     pending = PendingRegistration(
         kind="member", username=normalized, username_normalized=normalized, display_name=name, chair_id=chair_id,
         email=address, password_hash=password_hash, token_hash=hash_token(raw_token), created_at=now,
-        expires_at=now + timedelta(hours=get_settings().verification_ttl_hours))
+        expires_at=now + timedelta(hours=get_settings().verification_ttl_hours),
+        stats_private=bool(stats_private))
     db.add(pending)
     db.flush()
     audit.log(db, actor_type="system", action="registration.requested", target_type="pending_registration",
@@ -331,7 +332,7 @@ def confirm_member(db: Session, raw_token: str | None, *, pending_id: str | None
             user = users.create_account(
                 db, kind="member", username=row.username, username_normalized=row.username_normalized,
                 display_name=row.display_name, chair_id=row.chair_id, password_hash=row.password_hash,
-                email=row.email, verified_at=now, now=now)
+                email=row.email, verified_at=now, stats_private=bool(row.stats_private), now=now)
     except IntegrityError as exc:  # lost a race on the unique username/e-mail index
         raise Conflict("username or e-mail address is already registered", reason=REASON_USERNAME_TAKEN) from exc
     audit.log(db, actor_type="user", actor_id=user.id, action="user.registered", target_type="user",
@@ -371,7 +372,7 @@ def _active_member(db: Session, user_id: uuid.UUID | None) -> User | None:
 
 def begin_guest(db: Session, *, username: str, display_name: str, password: str, sponsor_email: str,
                 privacy_ack: bool, ip: str, now: datetime | None = None,
-                password_hash: str | None = None) -> GuestRequestResult:
+                password_hash: str | None = None, stats_private: bool = False) -> GuestRequestResult:
     """Validate a guest registration and, if `sponsor_email` belongs to a verified active member, store a
     `pending_registrations` row (kind guest, chair inherited from the sponsor).
 
@@ -415,7 +416,8 @@ def begin_guest(db: Session, *, username: str, display_name: str, password: str,
         kind="guest", username=normalized, username_normalized=normalized, display_name=name,
         chair_id=sponsor.chair_id, sponsor_id=sponsor.id, password_hash=password_hash,
         token_hash=hash_token(raw_token), created_at=now,
-        expires_at=now + timedelta(days=get_settings().guest_approval_ttl_days))
+        expires_at=now + timedelta(days=get_settings().guest_approval_ttl_days),
+        stats_private=bool(stats_private))
     db.add(pending)
     db.flush()
     audit.log(db, actor_type="system", action="registration.requested", target_type="pending_registration",
@@ -475,7 +477,7 @@ def approve_guest(db: Session, raw_token: str | None, *, ip: str | None = None, 
             guest = users.create_account(
                 db, kind="guest", username=row.username, username_normalized=row.username_normalized,
                 display_name=row.display_name, chair_id=sponsor.chair_id, password_hash=row.password_hash,
-                sponsor_id=sponsor.id, verified_at=now, now=now)
+                sponsor_id=sponsor.id, verified_at=now, stats_private=bool(row.stats_private), now=now)
     except IntegrityError as exc:  # lost a race on the unique username index
         raise Conflict("username is taken", field="username", reason=REASON_USERNAME_TAKEN) from exc
     audit.log(db, actor_type="user", actor_id=sponsor.id, action="guest.approved", target_type="user",

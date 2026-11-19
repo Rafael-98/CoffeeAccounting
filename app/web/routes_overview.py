@@ -154,7 +154,8 @@ def _people_url(*, q: str, chair: str, sort: str, page: int = 1) -> str:
 @router.get("/overview/people")
 def people_page(request: Request, q: str = "", chair: str = "", sort: str = "name", page: str = "1",
                 db: Session = Depends(deps.get_read_db)):
-    if deps.current_user(request) is None:
+    ctx = deps.current_user(request)
+    if ctx is None:
         return _anonymous(request)
     q = " ".join(q.split())[:Q_MAX]  # collapse whitespace/control characters, limit the length
     sort = sort if sort in overview.PEOPLE_SORTS else "name"
@@ -164,12 +165,20 @@ def people_page(request: Request, q: str = "", chair: str = "", sort: str = "nam
         chair_id = None
     chair_value = str(chair_id) if chair_id else ""
 
-    result = overview.people(db, query=q, chair_id=chair_id, sort=sort, page=_parse_page(page), per_page=PAGE_SIZE)
+    result = overview.people(db, query=q, chair_id=chair_id, sort=sort, page=_parse_page(page),
+                             per_page=PAGE_SIZE, viewer_user_id=ctx.user.id)
     cards = profiles.profiles_for(db, [r.id for r in result.rows])
-    rows = [{"id": r.id, "name": r.display_name, "chair": r.chair_name, "shots_month": _nn(r.shots_month),
-             "shots_total": _nn(r.shots_total), "label": r.balance_label, "inactive": r.inactive,
-             "profile": cards.get(r.id)}
-            for r in result.rows]
+    rows = []
+    for r in result.rows:
+        show = overview.can_see_personal_stats(
+            db, ctx.user.id, person_id=r.id, chair_id=r.chair_id, stats_private=r.stats_private)
+        rows.append({
+            "id": r.id, "name": r.display_name, "chair": r.chair_name,
+            "shots_month": _nn(r.shots_month) if show else None,
+            "shots_total": _nn(r.shots_total) if show else None,
+            "label": r.balance_label if show else None, "inactive": r.inactive,
+            "profile": cards.get(r.id), "stats_private": r.stats_private and not show,
+        })
     base = {"q": q, "chair": chair_value}
     context = {
         "rows": rows, "total": result.total, "page": result.page, "pages": result.pages, "sort": result.sort,
@@ -216,19 +225,29 @@ def person_page(request: Request, person_id: str, tab: str = "overview", showcas
     if person.id != pid:  # an id that was merged into another profile is not a person of its own
         return _not_found(request)
     # The public profile shows totals only: no dated history (that stays on the owner's private /account page).
+    show_stats = overview.can_see_personal_stats(
+        db, ctx.user.id, person_id=person.id, chair_id=person.chair_id, stats_private=person.stats_private)
+    is_own = person.id == ctx.user.id
+    tab = tab if tab in PERSON_TABS else "overview"
+    if not show_stats and tab == "achievements":
+        tab = "overview"
     context = {
         "person": {"id": person.id, "name": person.display_name, "chair": person.chair_name,
-                   "inactive": person.inactive, "label": person.balance_label,
-                   "shots_today": _nn(person.shots_today), "shots_month": _nn(person.shots_month),
-                   "shots_total": _nn(person.shots_total)},
+                   "inactive": person.inactive,
+                   "label": person.balance_label if show_stats else None,
+                   "shots_today": _nn(person.shots_today) if show_stats else None,
+                   "shots_month": _nn(person.shots_month) if show_stats else None,
+                   "shots_total": _nn(person.shots_total) if show_stats else None},
         "profile": profiles.get_profile(db, person.id),
-        "is_own": person.id == ctx.user.id,
-        "tab": tab if tab in PERSON_TABS else "overview",
-        "showcase": achievements.showcase(db, person.id),
-        "earned": [{"a": e.achievement, "date": format_local(e.unlocked_at, "%Y-%m-%d"), "in_showcase": e.in_showcase}
-                   for e in achievements.unlocked(db, person.id)],
+        "is_own": is_own,
+        "show_stats": show_stats,
+        "tab": tab,
+        "showcase": achievements.showcase(db, person.id) if show_stats else [],
+        "earned": ([{"a": e.achievement, "date": format_local(e.unlocked_at, "%Y-%m-%d"),
+                     "in_showcase": e.in_showcase}
+                    for e in achievements.unlocked(db, person.id)] if show_stats else []),
         "showcase_max": SHOWCASE_MAX,
-        "showcase_notice": SHOWCASE_NOTICES.get(showcase) if person.id == ctx.user.id else None,
+        "showcase_notice": SHOWCASE_NOTICES.get(showcase) if is_own else None,
         "can_edit": overview.can_edit_balance(db, ctx.user.id, person),
     }
     return _page(request, "site/person.html", context, "people")
