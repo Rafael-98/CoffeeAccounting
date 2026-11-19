@@ -21,7 +21,7 @@ from app.models import (
     UserSession,
     effective_users,
 )
-from app.services import admin_auth, audit, sessions
+from app.services import admin_auth, audit, profiles, sessions
 from app.services.authz import ensure_admin_can_access_user, require_global
 from app.services.errors import Conflict, Forbidden, InvalidInput, NotFound, UserInactive
 from app.timeutil import ensure_utc, utcnow
@@ -475,6 +475,7 @@ def anonymize_deactivate(
         if user.account_kind == "member":
             user.email = f"anonymous-{n}@example.org"
     user.status = "inactive"
+    profiles.delete_profile(db, user.id)  # status and picture belong to the identity being removed
     db.flush()
 
     sessions_revoked = sessions.revoke_user_sessions(db, user.id, now)
@@ -663,6 +664,7 @@ def merge_users(
     duplicate.status = "merged"
     duplicate.merged_into_id = target.id
     revoked = sessions.revoke_user_sessions(db, duplicate.id, now)
+    profiles.delete_profile(db, duplicate.id)  # a merged profile is never shown
     db.flush()
     audit.log(db, actor_type="admin", actor_id=admin.id, action="user.merged", target_type="user",
               target_id=duplicate.id,

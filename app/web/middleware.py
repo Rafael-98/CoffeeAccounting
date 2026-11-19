@@ -9,7 +9,8 @@ For every HTTP response:
 For every unsafe request (POST, PUT, PATCH, DELETE):
 * cross-site requests are rejected with 403 (`Sec-Fetch-Site: cross-site`, or an `Origin`
   that is neither `PUBLIC_BASE_URL`'s origin nor the request's own host);
-* bodies larger than `MAX_BODY_BYTES` are rejected with 413 (declared or streamed size).
+* bodies larger than `MAX_BODY_BYTES` are rejected with 413 (declared or streamed size); the few upload
+  routes in `LARGE_BODY_PATHS` (profile picture) have their own, larger limit.
 """
 
 from __future__ import annotations
@@ -22,6 +23,8 @@ from starlette.responses import PlainTextResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 MAX_BODY_BYTES = 64 * 1024
+# Exact paths of upload routes and their body limit (the picture limit plus room for the multipart framing).
+LARGE_BODY_PATHS = {"/account/avatar": 6 * 1024 * 1024}
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 
 CSP = "; ".join([
@@ -106,12 +109,13 @@ class SecurityMiddleware:
             await send(message)
 
         headers = Headers(scope=scope)
+        max_body = LARGE_BODY_PATHS.get(scope.get("path", ""), self.max_body)
         if scope["method"] not in SAFE_METHODS:
             if self._cross_site(headers):
                 await PlainTextResponse("Cross-site request rejected.", status_code=403)(scope, receive, send_wrapper)
                 return
             declared = headers.get("content-length")
-            if declared is not None and (not declared.isdigit() or int(declared) > self.max_body):
+            if declared is not None and (not declared.isdigit() or int(declared) > max_body):
                 await PlainTextResponse("Request too large.", status_code=413)(scope, receive, send_wrapper)
                 return
 
@@ -122,7 +126,7 @@ class SecurityMiddleware:
             message = await receive()
             if message["type"] == "http.request":
                 received += len(message.get("body", b""))
-                if received > self.max_body:
+                if received > max_body:
                     raise RequestTooLarge()
             return message
 

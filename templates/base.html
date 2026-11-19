@@ -14,7 +14,15 @@
   <a class="skip-link" href="#content">{{ t("common.skip_to_content") }}</a>
   <header class="site-header">
     <a class="brand" href="/">{{ settings.app_title }}</a>
-    {% block header_extra %}{% endblock %}
+    {% block header_extra %}
+    {% if header_user %}
+    {% from "_profile.html" import avatar, icon_person, icon_chart %}
+    <div class="header-actions" role="group" aria-label="{{ t('common.header_nav') }}">
+      <a class="header-button" href="/profile" title="{{ t('common.my_profile') }}">{% if header_user.profile.has_avatar %}{{ avatar(header_user.id, header_user.name, header_user.profile, "xs") }}{% else %}{{ icon_person() }}{% endif %}<span class="visually-hidden">{{ t('common.my_profile') }}</span></a>
+      <a class="header-button" href="/leaderboard" title="{{ t('common.leaderboard') }}">{{ icon_chart() }}<span class="visually-hidden">{{ t('common.leaderboard') }}</span></a>
+    </div>
+    {% endif %}
+    {% endblock %}
   </header>
   <main id="content" class="container">
     {% block content %}{% endblock %}

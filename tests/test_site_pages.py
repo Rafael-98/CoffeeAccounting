@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from app.models import AdminUser, PendingAction
 from app.services import groups, ledger, users
-from app.timeutil import format_local, local_month_bounds, utcnow
+from app.timeutil import format_local, local_day_bounds, local_month_bounds, utcnow
 from tests import factories as f
 from tests.admin_support import fast_hasher, login_as, make_real_admin, new_client  # noqa: F401
 
@@ -91,36 +91,38 @@ def test_admin_cookie_alone_is_not_a_site_session(app, db, user):
 
 
 # ----- person page: content --------------------------------------------------------------------------------
-def test_person_page_history_and_totals(client, db, viewer, chair, global_admin, login, old_price):
+def test_person_page_shows_totals_but_no_dated_history(client, db, viewer, chair, global_admin, login, old_price):
+    """The public profile shows Coffees today / this month / total and the balance; no history table and no
+    timestamps (the dated history stays on the owner's private /account page)."""
     login(viewer)
     ann = f.make_member(db, "Ann History", chair)
-    start = local_month_bounds(utcnow())[0]
-    t0 = start + timedelta(days=1, hours=3)
+    now = utcnow()
+    month_start = local_month_bounds(now)[0]
+    day_start = local_day_bounds(now)[0]
+    if month_start < day_start:  # one coffee earlier this month but not today (skipped on the 1st)
+        f.add_events(db, ann, "single", at=day_start - timedelta(seconds=1))
+    f.add_events(db, ann, "single", at=month_start - timedelta(days=3))  # last month
+    t0 = max(day_start, now - timedelta(minutes=10))
     f.add_events(db, ann, "single", at=t0)
-    ev = f.add_events(db, ann, "double", at=t0 + timedelta(minutes=1))[0]
-    f.add_events(db, ann, "single", at=t0 + timedelta(minutes=2))
-    ledger.admin_reverse_event(db, admin=global_admin, event_id=ev.id, note="oops", now=t0 + timedelta(minutes=3))
-    f.make_payment(db, ann, global_admin, 100, at=t0 + timedelta(minutes=4))
-    f.make_payment(db, ann, global_admin, -30, at=t0 + timedelta(minutes=5))
+    ev = f.add_events(db, ann, "double", at=t0 + timedelta(seconds=1))[0]
+    ledger.admin_reverse_event(db, admin=global_admin, event_id=ev.id, note="oops", now=t0 + timedelta(seconds=2))
+    f.make_payment(db, ann, global_admin, 100, at=t0 + timedelta(seconds=3))
+    f.make_payment(db, ann, global_admin, -30, at=t0 + timedelta(seconds=4))
     db.commit()
     r = client.get(f"/overview/people/{ann.id}")
     assert r.status_code == 200
     html = r.text
     assert "<h1>Ann History</h1>" in html and "Chair: CHA" in html
-    # consumption: newest first; reversal marked, original marked as reversed
-    cons = history_rows(html, "cons-h")
-    assert [c[4] for c in cons] == ["Reversal", "Coffee", "Reversed", "Coffee"]
-    assert cons[0][1:4] == ["2", "€0.50", "€1.00"]  # absolute values, no minus
-    assert cons[2][1:4] == ["2", "€0.50", "€1.00"]
-    assert cons[3][0] == format_local(t0, "%Y-%m-%d %H:%M")
-    # payments: a paid-back entry is worded, not signed
-    pays = history_rows(html, "pay-h")
-    assert [p[2] for p in pays] == ["Paid back", "Payment"]
-    assert [p[1] for p in pays] == ["€0.30", "€1.00"]
-    # totals after the reversal: 2 shots (both singles), consumed 1.00, paid 0.70 -> owes 0.30
+    earlier = 1 if month_start < day_start else 0
     summary = text(html[html.index('id="summary-h"'):html.index("</section>", html.index('id="summary-h"'))])
-    assert "Owes €0.30" in summary and "Shots this month 2" in summary and "Shots in total 2" in summary
-
+    assert "Coffees today 1" in summary
+    assert f"Coffees this month {1 + earlier}" in summary and f"Total coffees {2 + earlier}" in summary
+    consumed = 50 * (2 + earlier)
+    assert f"Owes €{(consumed - 70) / 100:.2f}" in summary
+    # no history tables, no timestamps, no payment wording
+    assert kinds(html) == [] and 'id="cons-h"' not in html and 'id="pay-h"' not in html
+    assert not re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", html)
+    assert "Paid back" not in html and "Reversal" not in html
 
 def test_balance_wording_credit_even_and_owes(client, db, viewer, chair, global_admin, login, old_price):
     login(viewer)
@@ -133,8 +135,7 @@ def test_balance_wording_credit_even_and_owes(client, db, viewer, chair, global_
         html = client.get(f"/overview/people/{person.id}").text
         assert f'class="balance balance-' in html
         assert expected in html and "−" not in html and not re.search(r"-\s*€", html)
-    assert "No coffee recorded yet." in client.get(f"/overview/people/{even.id}").text
-    assert "No payments recorded yet." in client.get(f"/overview/people/{even.id}").text
+    assert "Total coffees 0" in text(client.get(f"/overview/people/{even.id}").text)
 
 
 def test_month_boundary_europe_berlin_on_person_page(client, db, viewer, chair, login, old_price):
@@ -146,10 +147,7 @@ def test_month_boundary_europe_berlin_on_person_page(client, db, viewer, chair, 
     f.add_events(db, ann, "single", at=start + timedelta(seconds=1))  # Berlin: already this month, UTC: not
     html = client.get(f"/overview/people/{ann.id}").text
     summary = text(html[html.index('id="summary-h"'):])
-    assert "Shots this month 1" in summary and "Shots in total 2" in summary
-    # the dates in the table are Berlin local time
-    assert format_local(start + timedelta(seconds=1), "%Y-%m-%d %H:%M") in html
-    assert f'<th scope="row">{format_local(start - timedelta(seconds=1), "%Y-%m-%d %H:%M")}</th>' in html
+    assert "Coffees this month 1" in summary and "Total coffees 2" in summary
 
 
 def test_duplicate_name_suffix_matches_people_list(client, db, viewer, chair, other_chair, login):
@@ -220,10 +218,9 @@ def test_merged_profile_id_is_404_and_target_counts_both(client, db, viewer, cha
     assert client.get(f"/overview/people/{dup.id}").status_code == 404
     html = client.get(f"/overview/people/{keep.id}").text
     assert "Duplicate Me" not in html
-    assert kinds(html).count("coffee") + kinds(html).count("reversed") == 3 and kinds(html).count("reversal") == 1
     summary = text(html[html.index('id="summary-h"'):])
     # kept: 1 shot (0.50); duplicate: single reversed, double 1.00; paid 0.40 -> consumed 1.50, owes 1.10
-    assert "Shots in total 3" in summary and "Owes €1.10" in summary
+    assert "Total coffees 3" in summary and "Owes €1.10" in summary
     assert "Duplicate Me" not in client.get("/overview/people").text
 
 

@@ -37,6 +37,10 @@ USER_POST_DATA = {
     "/account/password": {"current_password": "x", "password": "a-long-enough-password",
                           "password2": "a-long-enough-password"},
     "/account/deactivate": {"confirm": "1"},
+    "/account/status": {"status_text": "pwned"},
+    "/account/avatar": {},
+    "/account/avatar/remove": {},
+    "/account/showcase": {"keys": "starter-pack"},
     "/logout": {},
 }
 PRE_SESSION_POSTS = ["/login", "/register", "/register/guest", "/verify/{token}", "/forgot", "/reset/{token}"]

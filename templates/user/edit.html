@@ -2,8 +2,46 @@
 {% block title %}{{ t("user.edit.title") }} – {{ settings.app_title }}{% endblock %}
 {% block head_extra %}<link rel="stylesheet" href="/static/user.css">{% endblock %}
 {% block content %}
-<section class="card">
+{% from "_profile.html" import avatar %}
+{% if notice %}<p class="card notice notice-ok" role="status">{{ t(notice) }}</p>{% endif %}
+<section class="card" id="public-profile">
   <h1>{{ t("user.edit.title") }}</h1>
+  <h2>{{ t("user.edit.profile_title") }}</h2>
+  <p class="muted">{{ t("user.edit.profile_hint") }}</p>
+  <div class="profile-edit-picture">
+    {{ avatar(me.id, me.display_name, profile, "lg") }}
+    <div>
+      <form method="post" action="/account/avatar" enctype="multipart/form-data" class="stack">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="field">
+          <label for="picture">{{ t("user.edit.avatar") }}</label>
+          <input id="picture" name="picture" type="file" accept="image/jpeg,image/png,image/webp,image/gif" required aria-describedby="picture-hint">
+          <p class="muted" id="picture-hint">{{ t("user.edit.avatar_hint", mb=avatar_max_mb) }}</p>
+          {% if errors.avatar %}<p class="field-error" role="alert">{{ t(errors.avatar, mb=avatar_max_mb) }}</p>{% endif %}
+        </div>
+        <button type="submit" class="button-secondary">{{ t("user.edit.avatar_upload") }}</button>
+      </form>
+      {% if profile.has_avatar %}
+      <form method="post" action="/account/avatar/remove">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="button-secondary">{{ t("user.edit.avatar_remove") }}</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  <form method="post" action="/account/status" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="field">
+      <label for="status_text">{{ t("user.edit.status") }}</label>
+      <input id="status_text" name="status_text" type="text" maxlength="{{ status_max }}" value="{{ values.status_text or '' }}" autocomplete="off" aria-describedby="status-hint">
+      <p class="muted" id="status-hint">{{ t("user.edit.status_hint", max=status_max) }}</p>
+      {% if errors.status %}<p class="field-error" role="alert">{{ t(errors.status, max=status_max) }}</p>{% endif %}
+    </div>
+    <button type="submit" class="button-secondary">{{ t("user.edit.status_save") }}</button>
+  </form>
+  <p><a href="/profile">{{ t("user.edit.view_profile") }}</a></p>
+</section>
+<section class="card">
   <form method="post" action="/account/edit">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="field">

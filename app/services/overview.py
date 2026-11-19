@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import NamedTuple
 
 from sqlalchemy import and_, case, func, or_, select
@@ -34,13 +34,15 @@ from app.services import groups
 from app.services.errors import NotFound
 from app.services.prices import get_price_in_effect
 from app.services.users import _escape_like, _fold, _fold_sql, normalize_name
-from app.timeutil import ensure_utc, local_month_bounds, to_local, utcnow
+from app.timeutil import ensure_utc, local_day_bounds, local_month_bounds, local_tz, to_local, utcnow
 
 PEOPLE_SORTS = ("name", "balance", "shots_month", "shots_total")
 DEFAULT_PER_PAGE = 50
 MAX_PER_PAGE = 200
 TREND_MONTHS = 12
 MAX_QUERY_LENGTH = 120
+LEADERBOARD_LIMIT = 200
+LEADERBOARD_MONTHS = 36  # months offered in the leaderboard's month picker
 
 BALANCE_STATES = ("owes", "credit", "even")
 
@@ -115,6 +117,7 @@ class PersonRow:
     shots_total: int
     balance_cents: int  # internal sign: positive = owes
     inactive: bool
+    shots_today: int = 0
 
     @property
     def balance_label(self) -> tuple[str, int]:
@@ -168,6 +171,7 @@ class PersonHistory:
     balance_cents: int
     consumption: tuple[HistoryConsumption, ...]  # newest first
     payments: tuple[HistoryPayment, ...]  # newest first
+    shots_today: int = 0
 
     @property
     def balance_label(self) -> tuple[str, int]:
@@ -208,9 +212,12 @@ def _base(now: datetime):
     eu, ce, pe = effective_users, ConsumptionEvent, PaymentEvent
     start, end = local_month_bounds(now)
     in_month = case((and_(ce.created_at >= start, ce.created_at < end), ce.quantity), else_=0)
+    day_start, day_end = local_day_bounds(now)
+    in_day = case((and_(ce.created_at >= day_start, ce.created_at < day_end), ce.quantity), else_=0)
     cons = (
         select(eu.c.effective_id.label("uid"), func.sum(ce.quantity).label("shots"),
-               func.sum(ce.amount_cents).label("amount"), func.sum(in_month).label("month_shots"))
+               func.sum(ce.amount_cents).label("amount"), func.sum(in_month).label("month_shots"),
+               func.sum(in_day).label("day_shots"))
         .join_from(ce, eu, eu.c.id == ce.user_id)
         .group_by(eu.c.effective_id)
         .subquery()
@@ -231,6 +238,7 @@ def _base(now: datetime):
             User.created_at.label("created_at"), User.chair_id.label("chair_id"),
             Chair.short_name.label("chair_name"), Chair.full_name.label("chair_full_name"),
             shots.label("shots"), func.coalesce(cons.c.month_shots, 0).label("month_shots"),
+            func.coalesce(cons.c.day_shots, 0).label("day_shots"),
             consumed.label("consumed"), paid_amount.label("paid"), (consumed - paid_amount).label("balance"),
         )
         .join(Chair, Chair.id == User.chair_id)
@@ -261,7 +269,7 @@ def _person(r) -> PersonRow:
     return PersonRow(
         id=r.id, display_name=_name(r.display_name, r.rn), chair_id=r.chair_id, chair_name=r.chair_name,
         shots_month=int(r.month_shots), shots_total=int(r.shots), balance_cents=int(r.balance),
-        inactive=r.status != "active",
+        inactive=r.status != "active", shots_today=int(r.day_shots),
     )
 
 
@@ -416,7 +424,7 @@ def person_history(db: Session, user_id: uuid.UUID, now: datetime | None = None)
         id=r.id, display_name=_name(r.display_name, r.rn), chair_id=r.chair_id, chair_name=r.chair_name,
         inactive=r.status != "active", shots_month=int(r.month_shots), shots_total=int(r.shots),
         consumed_cents=int(r.consumed), paid_cents=int(r.paid), balance_cents=int(r.balance),
-        consumption=consumption, payments=payments,
+        consumption=consumption, payments=payments, shots_today=int(r.day_shots),
     )
 
 
@@ -470,3 +478,88 @@ def price_history(db: Session) -> tuple[PricePoint, ...]:
         select(Price.effective_from, Price.price_per_shot_cents).order_by(Price.effective_from.desc())
     ).all()
     return tuple(PricePoint(ensure_utc(r.effective_from), int(r.price_per_shot_cents)) for r in rows)
+
+
+# ----- leaderboard --------------------------------------------------------------------------
+@dataclass(frozen=True)
+class LeaderRow:
+    rank: int  # competition ranking: equal shots share a rank ("1, 1, 3")
+    id: uuid.UUID
+    display_name: str  # with the same " (2)" suffix as the people list
+    chair_name: str
+    shots: int
+    inactive: bool
+
+
+@dataclass(frozen=True)
+class Leaderboard:
+    period: str  # "YYYY-MM" or "all"
+    rows: tuple[LeaderRow, ...]
+    months: tuple[str, ...]  # months the picker offers, newest first (always includes the current month)
+
+
+def parse_period(value: str | None, now: datetime | None = None) -> str:
+    """A valid leaderboard period: "all", or a "YYYY-MM" month that is not in the future. Anything else means
+    the current local month."""
+    now = _now(now)
+    current = to_local(now).strftime("%Y-%m")
+    value = (value or "").strip()
+    if value == "all":
+        return "all"
+    if len(value) == 7 and value[4] == "-" and value[:4].isdigit() and value[5:].isdigit():
+        year, month = int(value[:4]), int(value[5:])
+        if 2000 <= year <= 9999 and 1 <= month <= 12 and value <= current:
+            return value
+    return current
+
+
+def _month_bounds_of(period: str) -> tuple[datetime, datetime]:
+    year, month = int(period[:4]), int(period[5:])
+    middle = datetime.combine(date(year, month, 15), time(12), tzinfo=local_tz())
+    return local_month_bounds(middle)
+
+
+def _picker_months(db: Session, now: datetime) -> tuple[str, ...]:
+    first = db.scalar(select(func.min(ConsumptionEvent.created_at)))
+    out = []
+    start, _end = local_month_bounds(now)
+    oldest = local_month_bounds(ensure_utc(first))[0] if first is not None else start
+    while len(out) < LEADERBOARD_MONTHS:
+        out.append(to_local(start).strftime("%Y-%m"))
+        if start <= oldest:
+            break
+        start, _end = local_month_bounds(start - timedelta(hours=1))
+    return tuple(out)
+
+
+def leaderboard(db: Session, period: str | None = None, now: datetime | None = None) -> Leaderboard:
+    """Visible accounts ranked by shots in `period` (a "YYYY-MM" local calendar month, or "all"), most first.
+
+    Shots only (no money). Totals follow merges like every site total; reversals count negatively, so an
+    undone coffee is not counted. Accounts with no shots in the period are left out; ties are ordered by name.
+    """
+    now = _now(now)
+    period = parse_period(period, now)
+    eu, ce = effective_users, ConsumptionEvent
+    q = select(eu.c.effective_id.label("uid"), func.sum(ce.quantity).label("shots")).join_from(
+        ce, eu, eu.c.id == ce.user_id)
+    if period != "all":
+        start, end = _month_bounds_of(period)
+        q = q.where(ce.created_at >= start, ce.created_at < end)
+    period_shots = q.group_by(eu.c.effective_id).subquery()
+    v = _visible_ranked(_base(now))
+    rows = db.execute(
+        select(v.c.id, v.c.display_name, v.c.rn, v.c.chair_name, v.c.status, period_shots.c.shots)
+        .join(period_shots, period_shots.c.uid == v.c.id)
+        .where(period_shots.c.shots > 0)
+        .order_by(period_shots.c.shots.desc(), v.c.normalized_name, v.c.created_at, v.c.id)
+        .limit(LEADERBOARD_LIMIT)
+    ).all()
+    ranked = []
+    rank, previous = 0, None
+    for i, r in enumerate(rows, start=1):
+        if r.shots != previous:
+            rank, previous = i, r.shots
+        ranked.append(LeaderRow(rank=rank, id=r.id, display_name=_name(r.display_name, r.rn),
+                                chair_name=r.chair_name, shots=int(r.shots), inactive=r.status != "active"))
+    return Leaderboard(period=period, rows=tuple(ranked), months=_picker_months(db, now))

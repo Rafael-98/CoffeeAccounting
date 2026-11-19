@@ -50,7 +50,7 @@ from sqlalchemy.orm import Session, object_session
 
 from app.config import get_settings
 from app.models import EMAIL_MAX, USERNAME_MAX, AdminUser, Chair, PendingRegistration, User
-from app.services import audit, passwords, ratelimit, signing, users
+from app.services import achievements, audit, passwords, ratelimit, signing, users
 from app.services.authz import require_global
 from app.services.errors import Conflict, Forbidden, InvalidInput, InvalidToken, RateLimited
 from app.services.mail import MailMessage, build_message, normalize_address
@@ -482,6 +482,7 @@ def approve_guest(db: Session, raw_token: str | None, *, ip: str | None = None, 
               target_id=guest.id,
               metadata={"username": guest.username, "sponsor_id": str(sponsor.id), "chair_id": str(guest.chair_id),
                         "pending_registration_id": str(row.id)}, ip=ip, now=now)
+    achievements.sync_user(db, sponsor.id)  # Plus One
     return guest
 
 

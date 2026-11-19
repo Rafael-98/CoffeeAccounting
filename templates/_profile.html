@@ -1,0 +1,15 @@
+{# Profile picture or initials. `profile` is a profiles.ProfileInfo (or None). Decorative: the name is always next to it. #}
+{% macro avatar(id, name, profile, size="sm") %}
+{% if profile and profile.has_avatar %}<img class="avatar avatar-{{ size }}" src="/avatar/{{ id }}?v={{ profile.avatar_version }}" alt="" width="{{ 96 if size == 'lg' else 32 }}" height="{{ 96 if size == 'lg' else 32 }}" loading="lazy">{% else %}<span class="avatar avatar-{{ size }} avatar-initials" aria-hidden="true">{{ name|initials }}</span>{% endif %}
+{% endmacro %}
+
+{% macro status_line(profile) %}
+{% if profile and profile.status_text %}<span class="status-text">{{ profile.status_text }}</span>{% endif %}
+{% endmacro %}
+
+{# Header icons (inline SVG markup is allowed by the CSP; no inline styles). #}
+{% macro icon_person() %}<svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"></path></svg>{% endmacro %}
+{% macro icon_chart() %}<svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 21h18"></path><path d="M6 17v-3"></path><path d="M11 17v-6"></path><path d="M16 17V8"></path><path d="M4 11l6-5 4 3 7-6"></path><path d="M17 3h4v4"></path></svg>{% endmacro %}
+
+{# An achievement's icon: emoji, or an image file (TenPi). `a` is an achievements.Achievement. #}
+{% macro badge_icon(a, size="md") %}<span class="badge-medal badge-medal-{{ size }}" aria-hidden="true">{% if a.icon_is_image %}<img src="{{ a.icon }}" alt="" width="40" height="40">{% else %}{{ a.icon }}{% endif %}</span>{% endmacro %}

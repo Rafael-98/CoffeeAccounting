@@ -11,7 +11,7 @@ from starlette.responses import Response
 from app.db import read_session, write_session
 from app.models import NOTE_MAX
 from app.money import format_amount
-from app.services import authz, exports, ledger, roles, sessions, stats, users
+from app.services import authz, exports, ledger, profiles, roles, sessions, stats, users
 from app.services import audit
 from app.services.errors import InvalidInput, NotFound, ServiceError
 from app.services.mail import send_in_background
@@ -145,6 +145,7 @@ def user_detail(request: Request, uid: uuid.UUID = Depends(ad.admin_user_access)
                         "unit_price_plain": format_amount(unit) if unit is not None else "",
                         "uncorrected": uncorrected,
                         "identity_restore": restore,
+                        "public_profile": profiles.get_profile(db, detail.user.id),
                         "role": roles.role_info(db, detail.user) if ctx.is_global else None})
 
 
@@ -206,6 +207,37 @@ def rename_user(request: Request, display_name: str = Form("", max_length=200),
                              ip=client_ip(request))
 
     return _act(request, uid, ctx, run, ok="user_updated")
+
+
+@router.get("/users/{user_id}/avatar")
+def user_avatar(uid: uuid.UUID = Depends(ad.admin_user_access), ctx: ad.AdminContext = Depends(ad.require_admin)):
+    """The user's profile picture for the detail page (the admin cookie never reaches the user-side /avatar)."""
+    with read_session() as db:
+        try:
+            data, _version = profiles.get_avatar(db, uid)
+        except NotFound:
+            return Response(status_code=404)
+    return Response(content=data, media_type=profiles.AVATAR_CONTENT_TYPE, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/users/{user_id}/avatar/remove", dependencies=[Depends(ad.require_admin_csrf)])
+def remove_avatar(request: Request, uid: uuid.UUID = Depends(ad.admin_user_access),
+                  ctx: ad.AdminContext = Depends(ad.require_admin)):
+    """Moderation: remove the user's profile picture (audited as user.avatar_removed)."""
+    def run(db):
+        profiles.admin_remove(db, admin=ctx.admin, user_id=uid, what="avatar", ip=client_ip(request))
+
+    return _act(request, uid, ctx, run, ok="avatar_removed")
+
+
+@router.post("/users/{user_id}/status-text/remove", dependencies=[Depends(ad.require_admin_csrf)])
+def remove_status_text(request: Request, uid: uuid.UUID = Depends(ad.admin_user_access),
+                       ctx: ad.AdminContext = Depends(ad.require_admin)):
+    """Moderation: remove the user's status text (audited as user.status_text_removed)."""
+    def run(db):
+        profiles.admin_remove(db, admin=ctx.admin, user_id=uid, what="status", ip=client_ip(request))
+
+    return _act(request, uid, ctx, run, ok="status_text_removed")
 
 
 @router.post("/users/{user_id}/chair", dependencies=[Depends(ad.require_admin_csrf)])

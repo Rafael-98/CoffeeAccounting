@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from sqlalchemy import (
     JSON,
     Boolean,
+    LargeBinary,
     CheckConstraint,
     Column,
     DateTime,
@@ -58,6 +59,10 @@ IDENTITY_RESTORE_REASONS = ("self", "admin", "inactive")
 USERNAME_MAX = 64
 EMAIL_MAX = 254
 ACTOR_TYPES = ("admin", "user", "system")
+STATUS_TEXT_MAX = 60
+ACHIEVEMENT_KEY_MAX = 40
+SHOWCASE_MAX = 10
+AVATAR_MAX_BYTES = 200_000  # stored (re-encoded) picture; uploads may be larger
 
 
 def _now() -> datetime:
@@ -468,6 +473,62 @@ class UserIdentityRestore(Base):
         CheckConstraint("length(username) > 0", name="username_nonempty"),
         Index("ix_user_identity_restores_expires_at", "expires_at"),
     )
+
+
+class UserProfile(Base):
+    """Optional public profile extras of one account: a short status text and a profile picture.
+
+    Not part of the ledger: rows are created, changed and deleted freely. The picture is stored
+    re-encoded (square JPEG, metadata stripped) so the database backup covers it.
+    """
+
+    __tablename__ = "user_profiles"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    status_text: Mapped[str | None] = mapped_column(String(STATUS_TEXT_MAX))
+    avatar: Mapped[bytes | None] = mapped_column(LargeBinary)
+    avatar_updated_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_now)
+
+    __table_args__ = (
+        CheckConstraint(f"status_text IS NULL OR length(status_text) BETWEEN 1 AND {STATUS_TEXT_MAX}",
+                        name="status_text_length"),
+        CheckConstraint(f"avatar IS NULL OR length(avatar) BETWEEN 1 AND {AVATAR_MAX_BYTES}", name="avatar_size"),
+        CheckConstraint("(avatar IS NULL) = (avatar_updated_at IS NULL)", name="avatar_timestamp"),
+    )
+
+
+class AchievementUnlock(Base):
+    """One unlocked achievement of one account (definitions live in `app/services/achievements.py`).
+
+    `event_id` is the coffee (or undo) that unlocked it; None for unlocks triggered by something else (a
+    payment, a sponsored guest). An immediate undo deletes the unlocks its coffee triggered; nothing else
+    ever removes a row.
+    """
+
+    __tablename__ = "achievement_unlocks"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    key: Mapped[str] = mapped_column(String(ACHIEVEMENT_KEY_MAX))
+    unlocked_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    event_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("consumption_events.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_now)
+
+    __table_args__ = (
+        Index("uq_achievement_unlocks_user_key", "user_id", "key", unique=True),
+        CheckConstraint("length(key) > 0", name="key_nonempty"),
+    )
+
+
+class AchievementShowcase(Base):
+    """The achievements an account shows on its public profile (at most `SHOWCASE_MAX`, checked in the service)."""
+
+    __tablename__ = "achievement_showcase"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    key: Mapped[str] = mapped_column(String(ACHIEVEMENT_KEY_MAX), primary_key=True)
+    position: Mapped[int] = mapped_column(Integer)
 
 
 class AuditLog(Base):

@@ -1,0 +1,43 @@
+{% extends "site/base.html" %}
+{% from "_profile.html" import avatar, status_line %}
+{% block title %}{{ t("site.leaderboard.title") }} – {{ settings.app_title }}{% endblock %}
+{% block site_content %}
+<h1>{{ t("site.leaderboard.title") }}</h1>
+
+<form class="card leaderboard-filter" method="get" action="/leaderboard">
+  <div class="field">
+    <label for="period">{{ t("site.leaderboard.period") }}</label>
+    <select id="period" name="period">
+      {% for m in months %}
+      <option value="{{ m }}"{% if m == period %} selected{% endif %}>{{ m }}</option>
+      {% endfor %}
+      <option value="all"{% if period == "all" %} selected{% endif %}>{{ t("site.leaderboard.all") }}</option>
+    </select>
+  </div>
+  <div class="filter-actions"><button type="submit">{{ t("site.leaderboard.apply") }}</button></div>
+</form>
+
+<p class="muted">{{ t("site.leaderboard.hint") }}</p>
+{% if rows %}
+<div class="table-wrap"><table class="leaderboard">
+  <thead><tr>
+    <th scope="col" class="num">{{ t("site.leaderboard.col_rank") }}</th>
+    <th scope="col">{{ t("site.leaderboard.col_name") }}</th>
+    <th scope="col">{{ t("site.leaderboard.col_chair") }}</th>
+    <th scope="col" class="num">{{ t("site.leaderboard.col_shots") }}</th>
+  </tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr class="{{ 'rank-' ~ r.rank if r.rank <= 3 else '' }}{{ ' is-me' if header_user and r.id == header_user.id else '' }}{{ ' is-inactive' if r.inactive else '' }}">
+      <td class="num rank">{{ r.rank }}</td>
+      <th scope="row"><span class="person-cell">{{ avatar(r.id, r.name, r.profile) }}<span><a href="/overview/people/{{ r.id }}">{{ r.name }}</a>{% if header_user and r.id == header_user.id %} <span class="badge">{{ t("site.leaderboard.you") }}</span>{% endif %}{% if r.inactive %} <span class="badge">{{ t("site.inactive") }}</span>{% endif %}<br>{{ status_line(r.profile) }}</span></span></th>
+      <td>{{ r.chair }}</td>
+      <td class="num">{{ r.shots }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}
+<p class="card muted">{{ t("site.leaderboard.empty") }}</p>
+{% endif %}
+{% endblock %}

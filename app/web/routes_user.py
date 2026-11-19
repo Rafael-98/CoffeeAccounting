@@ -11,17 +11,20 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Form, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import RedirectResponse, Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import read_session, write_session
-from app.models import COFFEE_KINDS, DISPLAY_NAME_MAX, Chair, ConsumptionEvent
+from app.models import COFFEE_KINDS, DISPLAY_NAME_MAX, STATUS_TEXT_MAX, Chair, ConsumptionEvent
 from app.services import (account, ledger, login, onboarding, passwords, pending, prices, ratelimit, recovery,
                           registration, sessions, users)
 from app.services.errors import (AlreadyReversed, Conflict, Forbidden, InvalidCredentials, InvalidInput, InvalidPassword,
                                  InvalidToken, NoPriceConfigured, NotFound, RateLimited, UserInactive)
+from app.services import achievements, profiles
 from app.services.mail import send_in_background
 from app.web import deps, tokens, user_views
 from app.web.deps import UserContext
@@ -138,8 +141,10 @@ def done_page(request: Request, event_id: str, ctx: UserContext = Depends(deps.r
         "reversed": ledger.is_reversed(db, event.id), "can_undo": undoable is not None and undoable.id == event.id,
     }
     totals = ledger.get_totals(db, ctx.user.id)
+    reversal_id = db.scalar(select(ConsumptionEvent.id).where(ConsumptionEvent.reversal_of_id == event.id))
     return render(request, "user/done.html", {
         "event": view, "totals": totals, "headline": user_views.headline(totals.balance_cents),
+        "new_achievements": achievements.new_for_events(db, [event.id, reversal_id]), "me_id": ctx.user.id,
         "month_shots": user_views.month_shots(db, ctx.user.id),
         "debt_shots": user_views.debt_reminder_shots(db, totals.balance_cents)})
 
@@ -530,19 +535,99 @@ def password_submit(request: Request, current_password: str = Form("", max_lengt
     return _redirect("/account?notice=password")
 
 
+EDIT_NOTICES = {"status_saved": "user.edit.status_saved", "avatar_saved": "user.edit.avatar_saved",
+                "avatar_removed": "user.edit.avatar_removed"}
+
+
 def _edit_page(request: Request, db: Session, ctx: UserContext, values: dict, errors: dict | None = None,
-               status: int = 200) -> Response:
+               status: int = 200, notice: str | None = None) -> Response:
     current = db.get(Chair, ctx.user.chair_id)
+    profile = profiles.get_profile(db, ctx.user.id)
+    values = {"status_text": profile.status_text or "", **values}
     return render(request, "user/edit.html", {
         "chairs": user_views.active_chairs(db, include=current), "values": values, "errors": errors or {},
         "name_max": DISPLAY_NAME_MAX, "chair_locked": user_views.is_group_admin(db, ctx.user.id),
-        "current_chair": current}, status_code=status)
+        "current_chair": current, "profile": profile, "status_max": STATUS_TEXT_MAX,
+        "avatar_max_mb": profiles.AVATAR_UPLOAD_MAX_BYTES // (1024 * 1024),
+        "notice": EDIT_NOTICES.get(notice or ""), "me": ctx.user}, status_code=status)
 
 
 @router.get("/account/edit")
-def edit_page(request: Request, ctx: UserContext = Depends(deps.require_user),
+def edit_page(request: Request, notice: str = "", ctx: UserContext = Depends(deps.require_user),
               db: Session = Depends(deps.get_read_db)):
-    return _edit_page(request, db, ctx, {"display_name": ctx.user.display_name, "chair_id": str(ctx.user.chair_id)})
+    return _edit_page(request, db, ctx, {"display_name": ctx.user.display_name, "chair_id": str(ctx.user.chair_id)},
+                      notice=notice)
+
+
+def _edit_defaults(ctx: UserContext) -> dict:
+    return {"display_name": ctx.user.display_name, "chair_id": str(ctx.user.chair_id)}
+
+
+@router.post("/account/status", dependencies=[Depends(deps.require_csrf)])
+def status_submit(request: Request, status_text: str = Form("", max_length=STATUS_TEXT_MAX * 8),
+                  ctx: UserContext = Depends(deps.require_user)):
+    try:
+        with write_session() as db:
+            profiles.set_status(db, user_id=ctx.user.id, text=status_text)
+    except UserInactive:
+        return _message(request, "user.scan.inactive_title", "user.scan.inactive_body", status=403, tone="error")
+    except InvalidInput as exc:
+        key = "user.edit.status_too_long" if exc.context.get("reason") == "too_long" else "user.edit.status_invalid"
+        with read_session() as db:
+            return _edit_page(request, db, ctx, {**_edit_defaults(ctx), "status_text": status_text[:STATUS_TEXT_MAX * 2]},
+                              {"status": key}, status=400)
+    return _redirect("/account/edit?notice=status_saved")
+
+
+@router.post("/account/avatar", dependencies=[Depends(deps.require_csrf)])
+async def avatar_submit(request: Request, picture: UploadFile | None = File(None),
+                        ctx: UserContext = Depends(deps.require_user)):
+    data = await picture.read(profiles.AVATAR_UPLOAD_MAX_BYTES + 1) if picture is not None else b""
+    def save():
+        with write_session() as db:
+            profiles.set_avatar(db, user_id=ctx.user.id, data=data)
+
+    def error_page(key: str):
+        with read_session() as db:
+            return _edit_page(request, db, ctx, _edit_defaults(ctx), {"avatar": key}, status=400)
+
+    try:
+        await run_in_threadpool(save)
+    except UserInactive:
+        return _message(request, "user.scan.inactive_title", "user.scan.inactive_body", status=403, tone="error")
+    except InvalidInput as exc:
+        reason = exc.context.get("reason")
+        key = {"too_large": "user.edit.avatar_too_large", "empty": "user.edit.avatar_empty"}.get(
+            reason, "user.edit.avatar_invalid")
+        return await run_in_threadpool(error_page, key)
+    return _redirect("/account/edit?notice=avatar_saved")
+
+
+@router.post("/account/showcase", dependencies=[Depends(deps.require_csrf)])
+async def showcase_submit(request: Request, ctx: UserContext = Depends(deps.require_user)):
+    form = await request.form()
+    keys = [str(k)[:64] for k in form.getlist("keys")][:100]
+
+    def save() -> str:
+        try:
+            with write_session() as db:
+                achievements.set_showcase(db, user_id=ctx.user.id, keys=keys)
+        except InvalidInput as exc:
+            return exc.context.get("reason", "not_unlocked")
+        return "saved"
+
+    outcome = await run_in_threadpool(save)
+    return _redirect(f"/overview/people/{ctx.user.id}?tab=achievements&showcase={outcome}#achievements")
+
+
+@router.post("/account/avatar/remove", dependencies=[Depends(deps.require_csrf)])
+def avatar_remove(request: Request, ctx: UserContext = Depends(deps.require_user)):
+    try:
+        with write_session() as db:
+            profiles.remove_avatar_own(db, user_id=ctx.user.id)
+    except UserInactive:
+        return _message(request, "user.scan.inactive_title", "user.scan.inactive_body", status=403, tone="error")
+    return _redirect("/account/edit?notice=avatar_removed")
 
 
 @router.post("/account/deactivate", dependencies=[Depends(deps.require_csrf)])

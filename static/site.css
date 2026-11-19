@@ -38,3 +38,10 @@ table.history th[scope="row"], table.prices th[scope="row"] { font-weight: 600; 
 tr.kind-reversal td, tr.kind-reversal th[scope="row"], tr.kind-reversed td, tr.kind-reversed th[scope="row"],
 tr.kind-payback td, tr.kind-payback th[scope="row"] { color: var(--muted); }
 tr.kind-reversed td:not(.num) { font-style: italic; }
+
+/* Leaderboard */
+.container .leaderboard-filter { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0 1rem; }
+.container .leaderboard-filter .field { flex: 1; min-width: 10rem; }
+table.leaderboard td.rank { font-weight: 700; width: 3.5rem; }
+table.leaderboard tr.rank-1 td.rank, table.leaderboard tr.rank-2 td.rank, table.leaderboard tr.rank-3 td.rank { color: var(--accent); font-size: 1.15rem; }
+table.leaderboard tr.is-me { background: var(--warn-bg); }

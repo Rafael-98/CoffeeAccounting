@@ -57,6 +57,8 @@ POST_DATA = {
     "/admin/users/{user_id}/adjustment": {"quantity": "1"},
     "/admin/users/{user_id}/events/{event_id}/reverse": {},
     "/admin/users/{user_id}/rename": {"display_name": "Renamed"},
+    "/admin/users/{user_id}/avatar/remove": {},
+    "/admin/users/{user_id}/status-text/remove": {},
     "/admin/users/{user_id}/chair": {"chair_id": "{other_chair_id}"},
     "/admin/users/{user_id}/status": {"active": "0"},
     "/admin/users/{user_id}/sessions/revoke": {},
@@ -101,6 +103,7 @@ NON_BALANCE_POSTS = {
     "/admin/prices", "/admin/qr",                                       # chairs, price change, QR preview
     "/admin/users/{user_id}/group-admin/promote", "/admin/users/{user_id}/group-admin/demote",
     "/admin/users/{user_id}/sponsor",                                   # role assignment, sponsor change (task 4.3)
+    "/admin/users/{user_id}/avatar/remove", "/admin/users/{user_id}/status-text/remove",  # profile moderation
 }
 # Entry forms of the step-up actions: they only PREVIEW (a rolled-back dry run) and render the confirm page.
 PREVIEW_POSTS = {
@@ -283,7 +286,9 @@ def test_scope_and_role_enforced(method, path, calls, world, principals):
             assert r.status_code == 400 and "stepup" not in r.headers.get("location", ""), (name, r.status_code)
             continue
         if name in allowed:
-            assert r.status_code in (200, 303), (name, r.status_code, r.text[:200])
+            # the picture route answers 404 to an authorised admin when the user has no picture
+            ok = (200, 303, 404) if path.endswith("/avatar") else (200, 303)
+            assert r.status_code in ok, (name, r.status_code, r.text[:200])
             assert r.headers.get("location") != "/admin/login", name
         else:
             assert r.status_code == 403, (name, r.status_code)

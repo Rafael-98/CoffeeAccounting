@@ -19,7 +19,8 @@ from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app.db import read_session, write_session
-from app.services import overview, pending, ratelimit
+from app.models import SHOWCASE_MAX
+from app.services import achievements, overview, pending, profiles, ratelimit
 from app.services.errors import NotFound
 from app.strings import t
 from app.timeutil import format_local, utcnow
@@ -36,6 +37,7 @@ CACHE_CONTROL = "private, no-store"
 NAV_ITEMS = (
     ("overview", "/overview"),
     ("people", "/overview/people"),
+    ("leaderboard", "/leaderboard"),
     ("chairs", "/overview/chairs"),
     ("prices", "/overview/prices"),
     ("account", "/account"),
@@ -163,8 +165,10 @@ def people_page(request: Request, q: str = "", chair: str = "", sort: str = "nam
     chair_value = str(chair_id) if chair_id else ""
 
     result = overview.people(db, query=q, chair_id=chair_id, sort=sort, page=_parse_page(page), per_page=PAGE_SIZE)
+    cards = profiles.profiles_for(db, [r.id for r in result.rows])
     rows = [{"id": r.id, "name": r.display_name, "chair": r.chair_name, "shots_month": _nn(r.shots_month),
-             "shots_total": _nn(r.shots_total), "label": r.balance_label, "inactive": r.inactive}
+             "shots_total": _nn(r.shots_total), "label": r.balance_label, "inactive": r.inactive,
+             "profile": cards.get(r.id)}
             for r in result.rows]
     base = {"q": q, "chair": chair_value}
     context = {
@@ -191,8 +195,14 @@ def _not_found(request: Request) -> Response:
     return response
 
 
+PERSON_TABS = ("overview", "achievements")
+SHOWCASE_NOTICES = {"saved": "site.person.showcase_saved", "too_many": "site.person.showcase_too_many",
+                    "not_unlocked": "site.person.showcase_invalid"}
+
+
 @router.get("/overview/people/{person_id}")
-def person_page(request: Request, person_id: str, db: Session = Depends(deps.get_read_db)):
+def person_page(request: Request, person_id: str, tab: str = "overview", showcase: str = "",
+                db: Session = Depends(deps.get_read_db)):
     ctx = deps.current_user(request)
     if ctx is None:
         return _anonymous(request)
@@ -205,23 +215,20 @@ def person_page(request: Request, person_id: str, db: Session = Depends(deps.get
         return _not_found(request)
     if person.id != pid:  # an id that was merged into another profile is not a person of its own
         return _not_found(request)
-    # Reversals and paid-back money are shown as words with absolute amounts: no minus sign on the site.
-    consumption = [{
-        "date": format_local(c.date, DATE_FORMAT), "shots": abs(c.shots), "price_cents": c.unit_price_cents,
-        "amount_cents": abs(c.amount_cents),
-        "kind": "reversal" if c.is_reversal else ("reversed" if c.is_reversed else "coffee"),
-    } for c in person.consumption]
-    # A head admin's balance correction (bookkeeping) moved no money: neutral "Balance adjustment", never "Paid back".
-    payments = [{"date": format_local(p.date, DATE_FORMAT), "amount_cents": abs(p.amount_cents),
-                 "kind": "adjustment" if p.is_bookkeeping else ("payback" if p.amount_cents < 0 else "payment")}
-                for p in person.payments]
+    # The public profile shows totals only: no dated history (that stays on the owner's private /account page).
     context = {
         "person": {"id": person.id, "name": person.display_name, "chair": person.chair_name,
                    "inactive": person.inactive, "label": person.balance_label,
-                   "shots_month": _nn(person.shots_month), "shots_total": _nn(person.shots_total)},
-        "consumption": consumption, "payments": payments,
-        "has_adjustment": any(p["kind"] == "adjustment" for p in payments),
-        "has_payback": any(p["kind"] == "payback" for p in payments),
+                   "shots_today": _nn(person.shots_today), "shots_month": _nn(person.shots_month),
+                   "shots_total": _nn(person.shots_total)},
+        "profile": profiles.get_profile(db, person.id),
+        "is_own": person.id == ctx.user.id,
+        "tab": tab if tab in PERSON_TABS else "overview",
+        "showcase": achievements.showcase(db, person.id),
+        "earned": [{"a": e.achievement, "date": format_local(e.unlocked_at, "%Y-%m-%d"), "in_showcase": e.in_showcase}
+                   for e in achievements.unlocked(db, person.id)],
+        "showcase_max": SHOWCASE_MAX,
+        "showcase_notice": SHOWCASE_NOTICES.get(showcase) if person.id == ctx.user.id else None,
         "can_edit": overview.can_edit_balance(db, ctx.user.id, person),
     }
     return _page(request, "site/person.html", context, "people")
@@ -250,3 +257,45 @@ def prices_page(request: Request, db: Session = Depends(deps.get_read_db)):
              "state": "scheduled" if p.effective_from > now else ("current" if p is current else "")}
             for p in points]
     return _page(request, "site/prices.html", {"rows": rows}, "prices")
+
+
+# ----- own profile, leaderboard, pictures --------------------------------------------------------------
+@router.get("/profile")
+def own_profile(request: Request):
+    """The header's profile button: the signed-in account's public profile page."""
+    ctx = deps.current_user(request)
+    if ctx is None:
+        return _anonymous(request)
+    return _redirect(f"/overview/people/{ctx.user.id}")
+
+
+@router.get("/leaderboard")
+def leaderboard_page(request: Request, period: str = "", db: Session = Depends(deps.get_read_db)):
+    if deps.current_user(request) is None:
+        return _anonymous(request)
+    board = overview.leaderboard(db, period[:16])
+    cards = profiles.profiles_for(db, [r.id for r in board.rows])
+    rows = [{"rank": r.rank, "id": r.id, "name": r.display_name, "chair": r.chair_name, "shots": r.shots,
+             "inactive": r.inactive, "profile": cards.get(r.id)} for r in board.rows]
+    return _page(request, "site/leaderboard.html",
+                 {"rows": rows, "period": board.period, "months": board.months}, "leaderboard")
+
+
+AVATAR_CACHE = "private, max-age=86400"
+
+
+@router.get("/avatar/{person_id}")
+def avatar(request: Request, person_id: str, db: Session = Depends(deps.get_read_db)):
+    """A profile picture, for signed-in accounts only (403 for anonymous visitors, 404 when there is none). The `v` query value
+    changes with every new picture, so the browser may keep a picture for a day."""
+    if deps.current_user(request) is None:
+        return Response(status_code=403, headers={"Cache-Control": CACHE_CONTROL})
+    pid = deps.parse_uuid(person_id)
+    if pid is None:
+        return Response(status_code=404, headers={"Cache-Control": CACHE_CONTROL})
+    try:
+        data, _version = profiles.get_avatar(db, pid)
+    except NotFound:
+        return Response(status_code=404, headers={"Cache-Control": CACHE_CONTROL})
+    return Response(content=data, media_type=profiles.AVATAR_CONTENT_TYPE,
+                    headers={"Cache-Control": AVATAR_CACHE, "Content-Disposition": "inline"})

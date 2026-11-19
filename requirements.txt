@@ -11,3 +11,4 @@ segno==1.6.6
 pydantic-settings==2.15.0
 tzdata==2026.5
 cryptography==50.0.2
+pillow==13.0.0

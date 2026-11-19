@@ -17,8 +17,9 @@ from tests import factories as f
 from tests.user_support import make_account
 
 SITE_PATHS = ("/overview", "/overview/people")
-ROW_RE = re.compile(r'<tr(?: class="is-inactive")?>\s*<th scope="row"><a href="/overview/people/([0-9a-f-]+)">'
-                    r'([^<]*)</a>(?: <span class="badge">inactive</span>)?</th>\s*<td>([^<]*)</td>\s*'
+ROW_RE = re.compile(r'<tr(?: class="is-inactive")?>\s*<th scope="row">(?:<span class="person-cell">[^\n]*?)?'
+                    r'<a href="/overview/people/([0-9a-f-]+)">'
+                    r'([^<]*)</a>(?: <span class="badge">inactive</span>)?[^\n]*?</th>\s*<td>([^<]*)</td>\s*'
                     r'<td class="num">(\d+)</td>\s*<td class="num">(\d+)</td>\s*<td><span class="balance[^"]*">'
                     r'([^<]*)</span></td>')
 
@@ -114,11 +115,16 @@ def test_revoked_and_deactivated_sessions_are_anonymous(client, db, viewer, logi
 def test_route_enumeration_all_site_routes_are_get_only_and_gated(client, db):
     routes = [r for r in routes_overview.router.routes]
     assert {r.path for r in routes} == {"/overview", "/overview/people", "/overview/people/{person_id}",
-                                        "/overview/chairs", "/overview/prices"}
+                                        "/overview/chairs", "/overview/prices", "/profile", "/leaderboard",
+                                        "/avatar/{person_id}"}
     for r in routes:
         assert r.methods == {"GET"}, r.path  # nothing here changes state
         path = r.path.replace("{person_id}", str(uuid.uuid4()))
         resp = client.get(path, follow_redirects=False)
+        if r.path == "/avatar/{person_id}":  # an image: anonymous visitors get a plain 403, no login redirect
+            assert resp.status_code == 403
+            assert client.post(path, follow_redirects=False).status_code == 405
+            continue
         assert resp.status_code == 303 and resp.headers["location"] == "/login", r.path
         assert client.post(path, follow_redirects=False).status_code == 405
 
@@ -352,7 +358,7 @@ def test_inactive_hidden_unless_balance(client, db, viewer, chair, global_admin,
     assert "Hidden Gone" not in html
     got = {r["name"]: r for r in rows(html)}
     assert got["Owing Gone"]["balance"] == "Owes €0.50"
-    assert re.search(r'<tr class="is-inactive">\s*<th scope="row"><a href="/overview/people/[^"]+">Owing Gone</a> '
+    assert re.search(r'<tr class="is-inactive">\s*<th scope="row">[^\n]*?<a href="/overview/people/[^"]+">Owing Gone</a> '
                      r'<span class="badge">inactive</span>', html)
     f.make_payment(db, owing, global_admin, 50)  # settled: disappears
     assert "Owing Gone" not in client.get("/overview/people").text

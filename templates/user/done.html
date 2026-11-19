@@ -13,6 +13,18 @@
     <dt>{{ t("user.done.time") }}</dt><dd>{{ event.time }}</dd>
   </dl>
 </section>
+{% from "_profile.html" import badge_icon %}
+{% if new_achievements %}
+<section class="card achievement-new" role="status">
+  <h2>{{ t("user.done.new_achievement") if new_achievements|length == 1 else t("user.done.new_achievements") }}</h2>
+  <ul class="achievement-list">
+    {% for a in new_achievements %}
+    <li class="achievement">{{ badge_icon(a) }}<div class="achievement-text"><h3>{{ t("ach." ~ a.key ~ ".name") }}</h3><p>{{ t("ach." ~ a.key ~ ".desc") }}</p></div></li>
+    {% endfor %}
+  </ul>
+  <p><a href="/overview/people/{{ me_id }}?tab=achievements">{{ t("user.done.see_achievements") }}</a></p>
+</section>
+{% endif %}
 {% if debt_shots %}
 <p class="card notice notice-warn" role="status">{{ t("user.done.debt_reminder", n=debt_shots) }}</p>
 {% endif %}

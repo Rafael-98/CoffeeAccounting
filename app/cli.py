@@ -18,7 +18,7 @@ from app.db import read_session, write_session
 from app.models import (AdminSession, PasswordResetToken, PendingAction, PendingRegistration, RateLimitEvent,
                         User, UserSession)
 from app.money import format_money
-from app.services import audit, users
+from app.services import achievements, audit, users
 from app.services.checker import check_ledger
 from app.services.errors import ServiceError
 from app.services.mail import send_in_background
@@ -112,6 +112,16 @@ def cmd_deactivate_inactive(args) -> int:
     return 0
 
 
+def cmd_achievements_sync(args) -> int:
+    """Backfill / nightly sweep: replay every account's history and award all earned achievements, including
+    the queue badges of queues that are over. Only adds; safe to run any number of times."""
+    with write_session() as db:
+        counts = achievements.sync_all(db)
+        audit.log(db, actor_type="system", action="maintenance.achievements_sync", metadata=counts)
+    print(f"Achievements synced: {counts['accounts']} accounts, {counts['unlocks']} new unlocks")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m app.cli", description="Coffee ledger administration")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -138,6 +148,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--dry-run", action="store_true", help="list due accounts without changing anything")
     p.set_defaults(func=cmd_deactivate_inactive)
+
+    p = sub.add_parser(
+        "achievements-sync",
+        help="award all achievements earned so far (backfill after the upgrade; also run nightly for queue badges)",
+    )
+    p.set_defaults(func=cmd_achievements_sync)
 
     try:
         cli_admin = importlib.import_module("app.cli_admin")

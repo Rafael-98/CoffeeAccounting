@@ -25,7 +25,7 @@ from app.models import (
     PaymentEvent,
     User,
 )
-from app.services import audit
+from app.services import achievements, audit
 from app.services.authz import ensure_admin_can_access_user, require_global
 from app.services.errors import (
     AlreadyReversed,
@@ -185,6 +185,7 @@ def record_coffee(
         return RecordResult(stored, False)
     user.last_activity_at = now
     db.flush()
+    achievements.on_coffee(db, event, now=now)
     return RecordResult(event, True)
 
 
@@ -269,7 +270,9 @@ def undo_coffee(
     latest = _latest_session_coffee(db, user_id, session_id)
     if latest is None or latest.id != event.id:
         raise UndoNotAllowed("only the most recent coffee can be undone")
-    return _insert_reversal(db, _make_reversal(event, now=now, session_id=session_id))
+    reversal = _insert_reversal(db, _make_reversal(event, now=now, session_id=session_id))
+    achievements.on_undo(db, event, reversal, now=now)  # takes back what this coffee unlocked
+    return reversal
 
 
 # ----- admin actions ------------------------------------------------------------------------
@@ -501,6 +504,7 @@ def add_payment(
               metadata={"payment_id": str(payment.id), "amount_cents": amount_cents, "kind": kind,
                         "correction_of_id": str(correction_of_id) if correction_of_id else None},
               ip=ip, now=now)
+    achievements.on_payment(db, user.id)  # e.g. Ground State (balance exactly 0)
     return payment
 
 

@@ -146,6 +146,14 @@ STRINGS: dict[str, str] = {
     "admin.detail.manage": "Manage profile",
     "admin.detail.rename": "Display name",
     "admin.detail.rename_submit": "Save name",
+    "admin.detail.public_profile": "Public profile",
+    "admin.detail.picture": "Profile picture",
+    "admin.detail.no_picture": "No picture.",
+    "admin.detail.remove_picture": "Remove picture",
+    "admin.detail.status_text": "Status",
+    "admin.detail.no_status_text": "No status.",
+    "admin.detail.remove_status_text": "Remove status",
+    "admin.detail.moderation_hint": "Removal is logged. The person can set a new picture or status afterwards.",
     "admin.detail.deactivate": "Deactivate profile",
     "admin.detail.deactivate_hint": (
         "Anonymizes the display name to Alumni N, clears the login name and e-mail for public use, and "
@@ -273,6 +281,8 @@ STRINGS: dict[str, str] = {
     "admin.msg.adjustment_recorded": "Adjustment recorded.",
     "admin.msg.event_reversed": "Event reversed.",
     "admin.msg.user_updated": "Profile updated.",
+    "admin.msg.avatar_removed": "Profile picture removed.",
+    "admin.msg.status_text_removed": "Status removed.",
     "admin.msg.chair_changed": "{chair_label} changed.",
     "admin.msg.user_deactivated": "Profile deactivated.",
     "admin.msg.user_reactivated": "Profile reactivated.",

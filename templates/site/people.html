@@ -1,5 +1,6 @@
 {% extends "site/base.html" %}
 {% from "site/_macros.html" import balance %}
+{% from "_profile.html" import avatar, status_line %}
 {% block title %}{{ t("site.people.title") }} – {{ settings.app_title }}{% endblock %}
 {% block site_content %}
 <h1>{{ t("site.people.title") }}</h1>
@@ -51,7 +52,7 @@
   <tbody>
   {% for p in rows %}
     <tr{% if p.inactive %} class="is-inactive"{% endif %}>
-      <th scope="row"><a href="/overview/people/{{ p.id }}">{{ p.name }}</a>{% if p.inactive %} <span class="badge">{{ t("site.inactive") }}</span>{% endif %}</th>
+      <th scope="row"><span class="person-cell">{{ avatar(p.id, p.name, p.profile) }}<span><a href="/overview/people/{{ p.id }}">{{ p.name }}</a>{% if p.inactive %} <span class="badge">{{ t("site.inactive") }}</span>{% endif %}{% if p.profile and p.profile.status_text %}<br>{{ status_line(p.profile) }}{% endif %}</span></span></th>
       <td>{{ p.chair }}</td>
       <td class="num">{{ p.shots_month }}</td>
       <td class="num">{{ p.shots_total }}</td>

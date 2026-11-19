@@ -111,6 +111,29 @@
 </section>
 {% endif %}
 
+<section class="card" id="public-profile">
+  <h2>{{ t("admin.detail.public_profile") }}</h2>
+  <dl class="totals">
+    <dt>{{ t("admin.detail.picture") }}</dt>
+    <dd>{% if public_profile.has_avatar %}<img class="avatar avatar-lg" src="/admin/users/{{ u.id }}/avatar?v={{ public_profile.avatar_version }}" alt="" width="96" height="96">{% else %}<span class="muted">{{ t("admin.detail.no_picture") }}</span>{% endif %}</dd>
+    <dt>{{ t("admin.detail.status_text") }}</dt>
+    <dd>{% if public_profile.status_text %}{{ public_profile.status_text }}{% else %}<span class="muted">{{ t("admin.detail.no_status_text") }}</span>{% endif %}</dd>
+  </dl>
+  {% if public_profile.has_avatar %}
+  <form method="post" action="{{ base }}/avatar/remove">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="button-secondary">{{ t("admin.detail.remove_picture") }}</button>
+  </form>
+  {% endif %}
+  {% if public_profile.status_text %}
+  <form method="post" action="{{ base }}/status-text/remove">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="button-secondary">{{ t("admin.detail.remove_status_text") }}</button>
+  </form>
+  {% endif %}
+  <p class="muted">{{ t("admin.detail.moderation_hint") }}</p>
+</section>
+
 <section class="card">
   <h2>{{ t("admin.detail.manage") }}</h2>
   <form method="post" action="{{ base }}/rename" class="stack">

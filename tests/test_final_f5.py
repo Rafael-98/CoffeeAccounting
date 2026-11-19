@@ -177,32 +177,22 @@ def test_the_groups_page_has_no_flag_section_without_flagged_entries(app, db, ch
 
 
 # ----- M-2: bookkeeping is never "Paid back" on the open site ----------------------------------------------------
-def test_open_site_labels_set_balance_as_a_balance_adjustment(client, db, chair, global_admin, login, price):
+def test_open_site_profile_shows_only_the_balance_not_payment_lines(client, db, chair, global_admin, login, price):
+    """The public profile no longer lists payments (dated history stays on the owner's /account page): a set
+    balance and paid-back cash both show up only in the balance, never as "Paid back" or adjustment lines."""
     person = factories.make_user(db, "Adjusted Person", chair=chair)
+    refunded = factories.make_user(db, "Refunded Person", chair=chair)
     viewer = factories.make_member(db, "Viewer", chair, username="viewer")
     ledger.set_balance(db, admin=global_admin, user_id=person.id, target_balance_cents=500, idempotency_key="sb-1")
-    db.commit()  # owes 5.00 now: a NEGATIVE bookkeeping payment
-    login(viewer)
-    html = client.get(f"/overview/people/{person.id}").text
-    assert "Balance adjustment" in html and 'class="kind-adjustment"' in html
-    assert "bookkeeping correction of the balance" in html
-    assert "Paid back" not in html and "returned to the person" not in html
-    ledger.set_balance(db, admin=global_admin, user_id=person.id, target_balance_cents=-200, idempotency_key="sb-2")
-    db.commit()  # and a positive one
-    html = client.get(f"/overview/people/{person.id}").text
-    assert html.count('class="kind-adjustment"') == 2 and "Paid back" not in html and "Payment</td>" not in html
-
-
-def test_open_site_still_says_paid_back_for_real_paid_back_cash(client, db, chair, global_admin, login, price):
-    person = factories.make_user(db, "Refunded Person", chair=chair)
-    viewer = factories.make_member(db, "Viewer", chair, username="viewer")
-    ledger.add_payment(db, admin=global_admin, user_id=person.id, amount_cents=300)
-    ledger.add_payment(db, admin=global_admin, user_id=person.id, amount_cents=-100)
+    ledger.add_payment(db, admin=global_admin, user_id=refunded.id, amount_cents=300)
+    ledger.add_payment(db, admin=global_admin, user_id=refunded.id, amount_cents=-100)
     db.commit()
     login(viewer)
     html = client.get(f"/overview/people/{person.id}").text
-    assert "Paid back" in html and "returned to the person" in html
-    assert "Balance adjustment" not in html
+    assert "Owes €5.00" in html
+    assert "kind-adjustment" not in html and "Paid back" not in html and "Balance adjustment" not in html
+    html = client.get(f"/overview/people/{refunded.id}").text
+    assert "Credit €2.00" in html and "Paid back" not in html and "returned to the person" not in html
 
 
 def test_the_owners_account_page_words_a_set_balance_as_a_balance_correction(client, db, chair, global_admin, price):

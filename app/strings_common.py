@@ -13,6 +13,9 @@ STRINGS: dict[str, str] = {
     "common.back_home": "Back to the start page",
     "common.try_again": "Try again",
     "common.skip_to_content": "Skip to content",
+    "common.header_nav": "Profile and leaderboard",
+    "common.my_profile": "My profile",
+    "common.leaderboard": "Leaderboard",
     # Error pages (status code or service error code). Never include technical details.
     "error.title": "Something went wrong",
     "error.bad_request": "The request could not be processed. Please go back and try again.",

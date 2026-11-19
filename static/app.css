@@ -81,6 +81,38 @@ p { margin: 0 0 0.75rem; }
 }
 .brand { font-weight: 700; color: var(--text); text-decoration: none; font-size: 1.1rem; }
 
+/* Header buttons (profile, leaderboard) and avatars: shared by every page with the base header. */
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.header-actions { display: flex; gap: 0.5rem; }
+.header-button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: var(--tap); height: var(--tap); border: 1px solid var(--border); border-radius: 999px;
+  background: var(--surface); color: var(--text); text-decoration: none;
+}
+.header-button:hover { border-color: var(--accent); color: var(--accent); }
+.icon { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+.avatar {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  border-radius: 50%; object-fit: cover; background: var(--accent); color: var(--accent-text);
+  font-weight: 700; line-height: 1; overflow: hidden;
+}
+.avatar-xs { width: 32px; height: 32px; font-size: 0.8rem; }
+.avatar-sm { width: 32px; height: 32px; font-size: 0.8rem; }
+.avatar-lg { width: 96px; height: 96px; font-size: 2rem; }
+.person-cell { display: inline-flex; align-items: center; gap: 0.6rem; }
+.status-text { color: var(--muted); font-size: 0.9rem; font-weight: 400; overflow-wrap: anywhere; }
+.status-text-lg { color: var(--text); font-size: 1.05rem; }
+.profile-head { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.profile-head-text { flex: 1; min-width: 12rem; }
+.profile-head-text h1 { margin-bottom: 0.25rem; }
+.profile-edit-picture { display: flex; align-items: flex-start; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.profile-edit-picture > div { flex: 1; min-width: 12rem; }
+.profile-edit-picture form + form { margin-top: 0.5rem; }
+
 .container { flex: 1; width: 100%; max-width: 40rem; margin: 0 auto; padding: 1rem; }
 .container.wide { max-width: 72rem; }
 
@@ -166,3 +198,25 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .site-header, .site-footer, .no-print { display: none; }
   body { background: #fff; color: #000; }
 }
+
+/* Achievements: medals, showcase, list, profile tabs */
+.badge-medal {
+  display: inline-flex; align-items: center; justify-content: center; flex: none; border-radius: 50%;
+  background: var(--warn-bg); box-shadow: inset 0 0 0 3px var(--accent); line-height: 1;
+}
+.badge-medal-md { width: 56px; height: 56px; font-size: 1.75rem; }
+.badge-medal-sm { width: 36px; height: 36px; font-size: 1.1rem; box-shadow: inset 0 0 0 2px var(--accent); }
+.badge-medal img { width: 70%; height: 70%; object-fit: contain; }
+.showcase { list-style: none; margin: 0.5rem 0 0.75rem; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.achievement-list { list-style: none; margin: 0 0 1rem; padding: 0; display: grid; gap: 0.75rem; }
+.achievement { display: flex; gap: 0.9rem; align-items: flex-start; }
+.achievement-text { flex: 1; min-width: 0; }
+.achievement-text h3 { font-size: 1.05rem; margin: 0 0 0.2rem; }
+.achievement-text p { margin: 0 0 0.25rem; }
+.profile-tabs { display: flex; gap: 0.5rem; margin: 0 0 1rem; border-bottom: 1px solid var(--border); }
+.profile-tabs a {
+  display: inline-flex; align-items: center; gap: 0.4rem; min-height: var(--tap); padding: 0 0.9rem;
+  color: var(--text); text-decoration: none; font-weight: 600; border-bottom: 3px solid transparent;
+}
+.profile-tabs a.is-current { border-bottom-color: var(--accent); color: var(--accent); }
+.tab-count { font-size: 0.8rem; color: var(--muted); font-weight: 600; }

@@ -1,64 +1,77 @@
 {% extends "site/base.html" %}
 {% from "site/_macros.html" import balance %}
+{% from "_profile.html" import avatar, badge_icon %}
 {% block title %}{{ person.name }} – {{ settings.app_title }}{% endblock %}
 {% block site_content %}
 <p><a href="/overview/people">{{ t("site.person.back") }}</a></p>
-<h1>{{ person.name }}{% if person.inactive %} <span class="badge">{{ t("site.inactive") }}</span>{% endif %}</h1>
-<p class="muted">{{ t("site.person.chair", chair=person.chair) }}</p>
+<section class="card profile-head">
+  {{ avatar(person.id, person.name, profile, "lg") }}
+  <div class="profile-head-text">
+    <h1>{{ person.name }}{% if person.inactive %} <span class="badge">{{ t("site.inactive") }}</span>{% endif %}</h1>
+    <p class="muted">{{ t("site.person.chair", chair=person.chair) }}</p>
+    {% if profile.status_text %}<p class="status-text status-text-lg">{{ profile.status_text }}</p>
+    {% elif is_own %}<p class="muted">{{ t("site.person.no_status") }}</p>{% endif %}
+    {% if showcase %}
+    <ul class="showcase" aria-label="{{ t('site.person.showcase') }}">
+      {% for a in showcase %}<li title="{{ t('ach.' ~ a.key ~ '.name') }}: {{ t('ach.' ~ a.key ~ '.desc') }}">{{ badge_icon(a, "sm") }}<span class="visually-hidden">{{ t('ach.' ~ a.key ~ '.name') }}</span></li>{% endfor %}
+    </ul>
+    {% endif %}
+    {% if is_own %}<p><a class="button button-secondary" href="/account/edit">{{ t("site.person.edit_profile") }}</a></p>{% endif %}
+  </div>
+</section>
 {% if person.inactive %}<p class="muted">{{ t("site.person.inactive_note") }}</p>{% endif %}
 
+<nav class="profile-tabs" aria-label="{{ t('site.person.tabs') }}">
+  <a href="/overview/people/{{ person.id }}"{% if tab == "overview" %} aria-current="page" class="is-current"{% endif %}>{{ t("site.person.tab_overview") }}</a>
+  <a href="/overview/people/{{ person.id }}?tab=achievements"{% if tab == "achievements" %} aria-current="page" class="is-current"{% endif %}>{{ t("site.person.tab_achievements") }} <span class="tab-count">{{ earned|length }}</span></a>
+</nav>
+
+{% if tab == "achievements" %}
+<section class="card" id="achievements" aria-labelledby="ach-h">
+  <h2 id="ach-h">{{ t("site.person.tab_achievements") }}</h2>
+  {% if showcase_notice %}<p class="notice {{ 'notice-ok' if showcase_notice.endswith('saved') else 'notice-warn' }}" role="status">{{ t(showcase_notice, max=showcase_max) }}</p>{% endif %}
+  {% if earned %}
+  <p class="muted">{% if earned|length == 1 %}{{ t("site.person.achievements_count_one") }}{% else %}{{ t("site.person.achievements_count", count=earned|length) }}{% endif %}</p>
+  {% if is_own %}
+  <form method="post" action="/account/showcase">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <p class="muted">{{ t("site.person.showcase_hint", max=showcase_max) }}</p>
+  {% endif %}
+  <ul class="achievement-list">
+    {% for e in earned %}
+    <li class="achievement">
+      {{ badge_icon(e.a) }}
+      <div class="achievement-text">
+        <h3>{{ t("ach." ~ e.a.key ~ ".name") }}</h3>
+        <p>{{ t("ach." ~ e.a.key ~ ".desc") }}</p>
+        {% if is_own %}
+        <p class="muted">{{ t("site.person.unlocked_on", date=e.date) }}</p>
+        <label class="checkbox"><input type="checkbox" name="keys" value="{{ e.a.key }}"{% if e.in_showcase %} checked{% endif %}> {{ t("site.person.showcase_pick") }}</label>
+        {% endif %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% if is_own %}
+    <button type="submit">{{ t("site.person.showcase_save") }}</button>
+  </form>
+  {% endif %}
+  {% else %}
+  <p class="muted">{{ t("site.person.achievements_none_own") if is_own else t("site.person.achievements_none") }}</p>
+  {% endif %}
+</section>
+{% else %}
+
 <section class="card" aria-labelledby="summary-h">
-  <h2 id="summary-h">{{ t("site.person.balance") }}</h2>
+  <h2 id="summary-h">{{ t("site.person.coffee_title") }}</h2>
   <dl class="totals">
+    <dt>{{ t("site.person.shots_today") }}</dt><dd>{{ person.shots_today }}</dd>
+    <dt>{{ t("site.person.coffees_month") }}</dt><dd>{{ person.shots_month }}</dd>
+    <dt>{{ t("site.person.coffees_total") }}</dt><dd>{{ person.shots_total }}</dd>
     <dt>{{ t("site.person.balance") }}</dt><dd>{{ balance(person.label) }}</dd>
-    <dt>{{ t("site.person.shots_month") }}</dt><dd>{{ person.shots_month }}</dd>
-    <dt>{{ t("site.person.shots_total") }}</dt><dd>{{ person.shots_total }}</dd>
   </dl>
+  <p class="muted">{{ t("site.person.coffee_hint") }}</p>
   {% if can_edit %}<p><a class="button button-secondary" href="/admin/users/{{ person.id }}">{{ t("site.person.edit_balance") }}</a></p>{% endif %}
 </section>
-
-<section class="card" aria-labelledby="cons-h">
-  <h2 id="cons-h">{{ t("site.person.consumption") }}</h2>
-  {% if consumption %}
-  <div class="table-wrap"><table class="history">
-    <thead><tr>
-      <th scope="col">{{ t("site.person.col_date") }}</th><th scope="col" class="num">{{ t("site.person.col_shots") }}</th>
-      <th scope="col" class="num">{{ t("site.person.col_price") }}</th><th scope="col" class="num">{{ t("site.person.col_amount") }}</th>
-      <th scope="col">{{ t("site.person.col_kind") }}</th>
-    </tr></thead>
-    <tbody>
-    {% for c in consumption %}
-      <tr class="kind-{{ c.kind }}">
-        <th scope="row">{{ c.date }}</th>
-        <td class="num">{{ c.shots }}</td><td class="num">{{ c.price_cents|money }}</td><td class="num">{{ c.amount_cents|money }}</td>
-        <td>{{ t("site.person.kind_" ~ c.kind) }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table></div>
-  <p class="muted">{{ t("site.person.reversal_hint") }}</p>
-  {% else %}<p class="muted">{{ t("site.person.consumption_empty") }}</p>{% endif %}
-</section>
-
-<section class="card" aria-labelledby="pay-h">
-  <h2 id="pay-h">{{ t("site.person.payments") }}</h2>
-  {% if payments %}
-  <div class="table-wrap"><table class="history">
-    <thead><tr>
-      <th scope="col">{{ t("site.person.col_date") }}</th><th scope="col" class="num">{{ t("site.person.col_amount") }}</th>
-      <th scope="col">{{ t("site.person.col_kind") }}</th>
-    </tr></thead>
-    <tbody>
-    {% for p in payments %}
-      <tr class="kind-{{ p.kind }}">
-        <th scope="row">{{ p.date }}</th><td class="num">{{ p.amount_cents|money }}</td>
-        <td>{{ t("site.person.kind_" ~ p.kind) }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table></div>
-  {% if has_payback %}<p class="muted">{{ t("site.person.payback_hint") }}</p>{% endif %}
-  {% if has_adjustment %}<p class="muted">{{ t("site.person.adjustment_hint") }}</p>{% endif %}
-  {% else %}<p class="muted">{{ t("site.person.payments_empty") }}</p>{% endif %}
-</section>
+{% endif %}
 {% endblock %}
