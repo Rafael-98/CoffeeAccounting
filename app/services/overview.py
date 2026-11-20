@@ -118,6 +118,7 @@ class PersonRow:
     balance_cents: int  # internal sign: positive = owes
     inactive: bool
     shots_today: int = 0
+    stats_private: bool = False
 
     @property
     def balance_label(self) -> tuple[str, int]:
@@ -172,6 +173,7 @@ class PersonHistory:
     consumption: tuple[HistoryConsumption, ...]  # newest first
     payments: tuple[HistoryPayment, ...]  # newest first
     shots_today: int = 0
+    stats_private: bool = False
 
     @property
     def balance_label(self) -> tuple[str, int]:
@@ -236,6 +238,7 @@ def _base(now: datetime):
             User.id.label("id"), User.display_name.label("display_name"),
             User.normalized_name.label("normalized_name"), User.status.label("status"),
             User.created_at.label("created_at"), User.chair_id.label("chair_id"),
+            User.stats_private.label("stats_private"),
             Chair.short_name.label("chair_name"), Chair.full_name.label("chair_full_name"),
             shots.label("shots"), func.coalesce(cons.c.month_shots, 0).label("month_shots"),
             func.coalesce(cons.c.day_shots, 0).label("day_shots"),
@@ -270,7 +273,30 @@ def _person(r) -> PersonRow:
         id=r.id, display_name=_name(r.display_name, r.rn), chair_id=r.chair_id, chair_name=r.chair_name,
         shots_month=int(r.month_shots), shots_total=int(r.shots), balance_cents=int(r.balance),
         inactive=r.status != "active", shots_today=int(r.day_shots),
+        stats_private=bool(r.stats_private),
     )
+
+
+def chair_admin_of(db: Session, viewer_user_id: uuid.UUID) -> uuid.UUID | None:
+    """The chair id an active group admin (`role=chair`) is linked to, else None."""
+    row = db.execute(
+        select(User.chair_id).join(AdminUser, AdminUser.user_id == User.id)
+        .where(AdminUser.user_id == viewer_user_id, AdminUser.role == "chair", AdminUser.active.is_(True))
+    ).first()
+    return row.chair_id if row is not None else None
+
+
+def can_see_personal_stats(db: Session, viewer_user_id: uuid.UUID, *, person_id: uuid.UUID,
+                           chair_id: uuid.UUID, stats_private: bool) -> bool:
+    """Whether the signed-in account may see this person's balance, shot counts and achievements.
+
+    Public by default. With `stats_private`, only the person and an active group admin of their chair
+    see the numbers (head admins use `/admin`)."""
+    if not stats_private:
+        return True
+    if viewer_user_id == person_id:
+        return True
+    return chair_admin_of(db, viewer_user_id) == chair_id
 
 
 def _month_starts(now: datetime, months: int) -> list[tuple[datetime, datetime]]:
@@ -349,6 +375,7 @@ def chair_choices(db: Session, now: datetime | None = None) -> tuple[tuple[uuid.
 def people(
     db: Session, *, query: str | None = None, chair_id: uuid.UUID | None = None, sort: str = "name",
     page: int = 1, per_page: int = DEFAULT_PER_PAGE, now: datetime | None = None,
+    viewer_user_id: uuid.UUID | None = None,
 ) -> PeoplePage:
     """Visible accounts, filtered by name search and chair, sorted and paginated.
 
@@ -356,6 +383,9 @@ def people(
     " (2)" suffix is decided among ALL visible accounts, so it does not change with filters
     or pages. Sorts: name (A-Z), balance (most owed first), shots_month and shots_total
     (highest first); ties fall back to the name.
+
+    When `viewer_user_id` is set, balance/shots sorts do not order rows whose stats the viewer
+    may not see by their real values (those rows share a neutral key and sort after public ones).
     """
     now = _now(now)
     sort = sort if sort in PEOPLE_SORTS else "name"
@@ -373,12 +403,30 @@ def people(
     page = max(1, min(int(page or 1), pages))
 
     by_name = [v.c.normalized_name, v.c.created_at, v.c.id]
-    keys = {
-        "name": by_name,
-        "balance": [v.c.balance.desc(), *by_name],
-        "shots_month": [v.c.month_shots.desc(), *by_name],
-        "shots_total": [v.c.shots.desc(), *by_name],
-    }[sort]
+    if sort == "name" or viewer_user_id is None:
+        keys = {
+            "name": by_name,
+            "balance": [v.c.balance.desc(), *by_name],
+            "shots_month": [v.c.month_shots.desc(), *by_name],
+            "shots_total": [v.c.shots.desc(), *by_name],
+        }[sort]
+    else:
+        admin_chair = chair_admin_of(db, viewer_user_id)
+        can_see_parts = [v.c.stats_private.is_(False), v.c.id == viewer_user_id]
+        if admin_chair is not None:
+            can_see_parts.append(v.c.chair_id == admin_chair)
+        can_see = or_(*can_see_parts)
+        # 0 = visible stats (sorted by real value); 1 = hidden from this viewer (neutral, after).
+        privacy_bucket = case((can_see, 0), else_=1)
+        balance_key = case((can_see, v.c.balance), else_=0)
+        month_key = case((can_see, v.c.month_shots), else_=0)
+        total_key = case((can_see, v.c.shots), else_=0)
+        keys = {
+            "name": by_name,
+            "balance": [privacy_bucket, balance_key.desc(), *by_name],
+            "shots_month": [privacy_bucket, month_key.desc(), *by_name],
+            "shots_total": [privacy_bucket, total_key.desc(), *by_name],
+        }[sort]
     rows = db.execute(select(v).where(*clauses).order_by(*keys).limit(size).offset((page - 1) * size)).all()
     return PeoplePage(
         rows=tuple(_person(r) for r in rows), total=total, page=page, pages=pages, per_page=size, sort=sort,
@@ -425,6 +473,7 @@ def person_history(db: Session, user_id: uuid.UUID, now: datetime | None = None)
         inactive=r.status != "active", shots_month=int(r.month_shots), shots_total=int(r.shots),
         consumed_cents=int(r.consumed), paid_cents=int(r.paid), balance_cents=int(r.balance),
         consumption=consumption, payments=payments, shots_today=int(r.day_shots),
+        stats_private=bool(r.stats_private),
     )
 
 
@@ -434,11 +483,7 @@ def can_edit_balance(db: Session, viewer_user_id: uuid.UUID, person: PersonHisto
     own page (the ledger refuses own-account postings). Head admins have no user account and use /admin."""
     if viewer_user_id == person.id:
         return False
-    row = db.execute(
-        select(AdminUser.id, User.chair_id).join(User, User.id == AdminUser.user_id)
-        .where(AdminUser.user_id == viewer_user_id, AdminUser.role == "chair", AdminUser.active.is_(True))
-    ).first()
-    return row is not None and row.chair_id == person.chair_id
+    return chair_admin_of(db, viewer_user_id) == person.chair_id
 
 
 # ----- chairs -------------------------------------------------------------------------------
@@ -537,6 +582,7 @@ def leaderboard(db: Session, period: str | None = None, now: datetime | None = N
 
     Shots only (no money). Totals follow merges like every site total; reversals count negatively, so an
     undone coffee is not counted. Accounts with no shots in the period are left out; ties are ordered by name.
+    Accounts with `stats_private` are omitted (the ranking is peer-visible).
     """
     now = _now(now)
     period = parse_period(period, now)
@@ -551,7 +597,7 @@ def leaderboard(db: Session, period: str | None = None, now: datetime | None = N
     rows = db.execute(
         select(v.c.id, v.c.display_name, v.c.rn, v.c.chair_name, v.c.status, period_shots.c.shots)
         .join(period_shots, period_shots.c.uid == v.c.id)
-        .where(period_shots.c.shots > 0)
+        .where(period_shots.c.shots > 0, v.c.stats_private.is_(False))
         .order_by(period_shots.c.shots.desc(), v.c.normalized_name, v.c.created_at, v.c.id)
         .limit(LEADERBOARD_LIMIT)
     ).all()

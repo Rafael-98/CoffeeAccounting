@@ -41,6 +41,7 @@ USER_POST_DATA = {
     "/account/avatar": {},
     "/account/avatar/remove": {},
     "/account/showcase": {"keys": "starter-pack"},
+    "/account/privacy": {"stats_private": "1"},
     "/logout": {},
 }
 PRE_SESSION_POSTS = ["/login", "/register", "/register/guest", "/verify/{token}", "/forgot", "/reset/{token}"]

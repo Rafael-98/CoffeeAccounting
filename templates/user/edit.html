@@ -39,6 +39,17 @@
     </div>
     <button type="submit" class="button-secondary">{{ t("user.edit.status_save") }}</button>
   </form>
+  <form method="post" action="/account/privacy" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="field">
+      <label class="checkbox" for="stats_private">
+        <input id="stats_private" name="stats_private" type="checkbox" value="1"{% if values.stats_private %} checked{% endif %}>
+        <span>{{ t("user.edit.stats_private") }}</span>
+      </label>
+      <p class="muted">{{ t("user.edit.stats_private_hint") }}</p>
+    </div>
+    <button type="submit" class="button-secondary">{{ t("user.edit.privacy_save") }}</button>
+  </form>
   <p><a href="/profile">{{ t("user.edit.view_profile") }}</a></p>
 </section>
 <section class="card">
